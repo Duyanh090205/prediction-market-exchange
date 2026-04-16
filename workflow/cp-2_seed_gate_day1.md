@@ -1,21 +1,21 @@
 # CP-2: Seed + Gate Check Day 1
 
 **Covers**: Day 1 Step 8 (Seed Users)
-**Status**: ⬜ Not Started
+**Status**: ✅ Done
 **Depends on**: CP-1 ✅
 
 ---
 
 ## What Gets Built
 
-- [ ] `prisma/seed.ts` — creates initial users with correct roles and balances
-- [ ] Sam: 10,000 coins, LIQUIDITY_PROVIDER
-- [ ] Admin: 1,000 coins, ADMIN
-- [ ] Ivan, James, Thy, Khang, Hieu: 1,000 coins each, USER
-- [ ] All passwords: bcrypt hashed (work factor 12), minimum 8 characters
-- [ ] For each user: BalanceLedger row with `eventType = INITIAL_SEED`, `delta = starting balance`, `balanceAfter = starting balance`, `initiatedBy = 0` (system), `note = "Initial seed"`
-- [ ] Temporary passwords output to console (users reset via Admin flow later)
-- [ ] **No hardcoded user limit** — Admin creates more accounts via admin panel anytime
+- [x] `prisma/seed.ts` — creates initial users with correct roles and balances
+- [x] Sam: 10,000 coins, LIQUIDITY_PROVIDER
+- [x] Admin: 1,000 coins, ADMIN
+- [x] Ivan, James, Thy, Khang, Hieu: 1,000 coins each, USER
+- [x] All passwords: bcrypt hashed (work factor 12), minimum 8 characters
+- [x] For each user: BalanceLedger row with `eventType = INITIAL_SEED`, `delta = starting balance`, `balanceAfter = starting balance`, `initiatedBy = 0` (system), `note = "Initial seed"`
+- [x] Temporary passwords output to console (users reset via Admin flow later)
+- [x] **No hardcoded user limit** — Admin creates more accounts via admin panel anytime
 
 ---
 

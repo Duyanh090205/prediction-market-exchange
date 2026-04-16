@@ -1,7 +1,7 @@
 # CP-3: Contract & Quote APIs + Market UI
 
 **Covers**: Day 2 Steps 1–3
-**Status**: ⬜ Not Started
+**Status**: ✅ Done
 **Depends on**: CP-2 ✅
 
 ---
@@ -10,21 +10,21 @@
 
 ### APIs
 
-- [ ] `GET /api/contracts` — all OPEN contracts. Each includes quotes + maker role (so UI detects LIQUIDITY_PROVIDER)
-- [ ] `POST /api/contracts` — Admin only (role check first, 403 if not). Title + description
-- [ ] `GET /api/contracts/[id]` — full detail: all quotes (with maker roles), all hints (newest first), all confirmed OPEN trades
-- [ ] `POST /api/quotes` — USER or LIQUIDITY_PROVIDER only. Admin blocked (403). Validate: `bid < ask`, `size >= 1` (integer, no decimals)
-- [ ] `PATCH /api/quotes/[id]` — maker only. Blocked if PENDING take requests exist → "Resolve all pending requests before editing." Otherwise update bid/ask/size
-- [ ] `DELETE /api/quotes/[id]` — maker only. Transaction: all PENDING requests → REJECTED, notify each requester, quote → CANCELLED
+- [x] `GET /api/contracts` — all OPEN contracts. Each includes quotes + maker role (so UI detects LIQUIDITY_PROVIDER)
+- [x] `POST /api/contracts` — Admin only (role check first, 403 if not). Title + description
+- [x] `GET /api/contracts/[id]` — full detail: all quotes (with maker roles), all hints (newest first), all confirmed OPEN trades
+- [x] `POST /api/quotes` — USER or LIQUIDITY_PROVIDER only. Admin blocked (403). Validate: `bid < ask`, `size >= 1` (integer, no decimals)
+- [x] `PATCH /api/quotes/[id]` — maker only. Blocked if PENDING take requests exist → "Resolve all pending requests before editing." Otherwise update bid/ask/size
+- [x] `DELETE /api/quotes/[id]` — maker only. Transaction: all PENDING requests → REJECTED, notify each requester, quote → CANCELLED
 
 ### UI Pages
 
-- [ ] `app/page.tsx` — landing page listing all open contracts. Dark mode trading platform aesthetic
-- [ ] `app/markets/[id]/page.tsx` — two-column market layout:
+- [x] `app/page.tsx` — landing page listing all open contracts. Dark mode trading platform aesthetic
+- [x] `app/markets/[id]/page.tsx` — two-column market layout:
   - **Left column**: Sam's quote (large, prominent — detected by `quote.maker.role === 'LIQUIDITY_PROVIDER'`). Below: take request form + HintPanel
   - **Right column**: other players' quotes (smaller list, with maker name, bid/ask/size, take action if not maker)
   - **Below both**: all confirmed trades on this contract
-- [ ] Components: `ContractCard`, `QuoteCard` (prominent variant for LP), `TakeRequestForm`
+- [x] Components: `ContractCard`, `QuoteCard` (prominent variant for LP), `TakeRequestForm`
 
 ---
 

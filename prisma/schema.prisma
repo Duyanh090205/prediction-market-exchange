@@ -1,0 +1,255 @@
+// Prisma Schema — Trading Game Platform
+// All 12 tables defined per implementation_plan.md Section 6, Step 3
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  LIQUIDITY_PROVIDER
+  USER
+}
+
+enum ContractStatus {
+  OPEN
+  SETTLED
+}
+
+enum QuoteStatus {
+  OPEN
+  EXHAUSTED
+  CANCELLED
+}
+
+enum Side {
+  OVER
+  UNDER
+}
+
+enum TakeRequestStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum TradeStatus {
+  OPEN
+  SETTLED
+}
+
+enum EventType {
+  INITIAL_SEED
+  TRADE_CONFIRM
+  SETTLEMENT
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model User {
+  id             Int      @id @default(autoincrement())
+  username       String   @unique
+  email          String   @unique
+  hashedPassword String
+  balance        Int      @default(1000)
+  role           Role     @default(USER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  quotes              Quote[]
+  takeRequests         TakeRequest[]
+  tradesAsTaker        Trade[]              @relation("TakerTrades")
+  tradesAsMaker        Trade[]              @relation("MakerTrades")
+  hints                Hint[]
+  notifications        Notification[]
+  balanceLedger        BalanceLedger[]
+  passwordResetTokens  PasswordResetToken[]
+}
+
+model Contract {
+  id              Int            @id @default(autoincrement())
+  title           String
+  description     String
+  status          ContractStatus @default(OPEN)
+  settlementValue Int?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relations
+  quotes Quote[]
+  trades Trade[]
+  hints  Hint[]
+}
+
+model Quote {
+  id         Int         @id @default(autoincrement())
+  contractId Int
+  makerId    Int
+  bid        Int
+  ask        Int
+  size       Int
+  status     QuoteStatus @default(OPEN)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  // Relations
+  contract     Contract      @relation(fields: [contractId], references: [id])
+  maker        User          @relation(fields: [makerId], references: [id])
+  takeRequests TakeRequest[]
+  trades       Trade[]
+
+  @@index([contractId])
+  @@index([makerId])
+}
+
+model TakeRequest {
+  id          Int               @id @default(autoincrement())
+  quoteId     Int
+  requesterId Int
+  side        Side
+  size        Int
+  status      TakeRequestStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime          @default(now())
+
+  // Relations
+  quote     Quote @relation(fields: [quoteId], references: [id])
+  requester User  @relation(fields: [requesterId], references: [id])
+
+  @@index([quoteId])
+  @@index([requesterId])
+}
+
+model Trade {
+  id         Int         @id @default(autoincrement())
+  contractId Int
+  quoteId    Int
+  takerId    Int
+  makerId    Int
+  takerSide  Side
+  strike     Int
+  size       Int
+  status     TradeStatus @default(OPEN)
+  takerPnl   Int?
+  makerPnl   Int?
+  createdAt  DateTime    @default(now())
+
+  // Relations
+  contract Contract @relation(fields: [contractId], references: [id])
+  quote    Quote    @relation(fields: [quoteId], references: [id])
+  taker    User     @relation("TakerTrades", fields: [takerId], references: [id])
+  maker    User     @relation("MakerTrades", fields: [makerId], references: [id])
+
+  @@index([contractId])
+  @@index([takerId])
+  @@index([makerId])
+}
+
+model Hint {
+  id         Int      @id @default(autoincrement())
+  contractId Int
+  authorId   Int
+  content    String   @db.Text
+  linkUrl    String?
+  linkLabel  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  contract Contract @relation(fields: [contractId], references: [id])
+  author   User     @relation(fields: [authorId], references: [id])
+
+  @@index([contractId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model NotificationArchive {
+  id                Int      @id @default(autoincrement())
+  originalId        Int
+  userId            Int
+  message           String   @db.Text
+  isRead            Boolean
+  originalCreatedAt DateTime
+  archivedAt        DateTime @default(now())
+
+  @@index([userId])
+}
+
+model BalanceLedger {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  delta        Int
+  balanceAfter Int
+  eventType    EventType
+  tradeId      Int?
+  contractId   Int?
+  initiatedBy  Int
+  note         String    @db.Text
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([eventType])
+}
+
+model IdempotencyKey {
+  id             Int      @id @default(autoincrement())
+  actorId        Int
+  action         String
+  idempotencyKey String
+  requestHash    String
+  response       String   @db.Text
+  createdAt      DateTime @default(now())
+
+  @@unique([actorId, action, idempotencyKey])
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @db.Text
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdBy Int
+  createdAt DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model AdminAuditLog {
+  id           Int      @id @default(autoincrement())
+  adminId      Int
+  action       String
+  targetUserId Int?
+  note         String   @db.Text
+  createdAt    DateTime @default(now())
+
+  @@index([adminId])
+}

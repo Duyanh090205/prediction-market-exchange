@@ -1,20 +1,20 @@
 # CP-4: Hints + Gate Check Day 2
 
 **Covers**: Day 2 Step 4
-**Status**: ⬜ Not Started
+**Status**: ✅ Done
 **Depends on**: CP-3 ✅
 
 ---
 
 ## What Gets Built
 
-- [ ] `POST /api/hints` — LIQUIDITY_PROVIDER and ADMIN only
-- [ ] `PATCH /api/hints/[id]` — author only (the user who created it)
-- [ ] `DELETE /api/hints/[id]` — author only
-- [ ] Each hint: text content + optional URL + optional display label
-- [ ] URL without label → URL itself used as link text
-- [ ] Links always open in new tab (`target="_blank"`)
-- [ ] `HintPanel` component displays hints newest-first on market page left column
+- [x] `POST /api/hints` — LIQUIDITY_PROVIDER and ADMIN only
+- [x] `PATCH /api/hints/[id]` — author only (the user who created it)
+- [x] `DELETE /api/hints/[id]` — author only
+- [x] Each hint: text content + optional URL + optional display label
+- [x] URL without label → URL itself used as link text
+- [x] Links always open in new tab (`target="_blank"`)
+- [x] `HintPanel` component displays hints newest-first on market page left column
 
 ---
 
