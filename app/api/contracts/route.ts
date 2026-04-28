@@ -15,8 +15,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const url = new URL(request.url);
+    const showAll = url.searchParams.get("all") === "1" && session.user.role === "ADMIN";
+
     const contracts = await prisma.contract.findMany({
-      where: { status: "OPEN" },
+      where: showAll ? {} : { status: "OPEN" },
       include: {
         quotes: {
           where: { status: "OPEN" },
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/contracts — Admin only
+// POST /api/contracts — Admin or Liquidity Provider
 export async function POST(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
@@ -60,16 +63,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "ADMIN") {
+    if (session.user.role !== "ADMIN" && session.user.role !== "LIQUIDITY_PROVIDER") {
       reqLog.finish(403, session.user.id);
       return NextResponse.json(
-        { error: "Only Admin can create contracts" },
+        { error: "Only Admin or Liquidity Provider can create contracts" },
         { status: 403 }
       );
     }
 
     const body = await request.json();
-    const { title, description } = body;
+    const { title, description, minPrice, maxPrice } = body;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
       reqLog.finish(400, session.user.id);
@@ -90,10 +93,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const minP = minPrice != null ? Number(minPrice) : 0;
+    const maxP = maxPrice != null ? Number(maxPrice) : 100;
+    if (!Number.isInteger(minP) || !Number.isInteger(maxP)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json(
+        { error: "minPrice and maxPrice must be integers" },
+        { status: 400 }
+      );
+    }
+    if (minP >= maxP) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json(
+        { error: "minPrice must be strictly less than maxPrice" },
+        { status: 400 }
+      );
+    }
+
     const contract = await prisma.contract.create({
       data: {
         title: title.trim(),
         description: description.trim(),
+        minPrice: minP,
+        maxPrice: maxP,
         status: "OPEN",
       },
     });

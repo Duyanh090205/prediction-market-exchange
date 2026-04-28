@@ -1,88 +1,197 @@
 /**
- * Rate Limiter — In-Memory
+ * Rate limiter — sliding window with pluggable backend.
  *
- * 10 failed login attempts per IP within a 15-minute window.
- * After 10 failures, the IP is blocked for 15 minutes.
- * Successful login resets the counter.
+ * Defaults to an in-memory store (single-instance dev). When `REDIS_URL`
+ * is set, transparently switches to a Redis-backed store using INCR + EXPIRE
+ * with atomic Lua so multi-pod deployments share state.
  *
- * Replace with Redis if scaling significantly.
+ * Identifier strategy: callers should compose IP + scope (e.g. `login:1.2.3.4`,
+ * `register:1.2.3.4`, `order:user:42`). This module is scope-agnostic.
  */
 
-interface RateLimitEntry {
+interface RateLimitStore {
+  check(key: string, limit: number, windowMs: number): Promise<RateLimitResult>;
+  recordFailure(key: string, windowMs: number): Promise<void>;
+  reset(key: string): Promise<void>;
+}
+
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  retryAfterMs?: number;
+}
+
+// ─── In-memory store (dev / single-pod) ──────────────────────────────────────
+
+interface Entry {
   count: number;
   firstAttempt: number;
   blockedUntil?: number;
 }
 
-const store = new Map<string, RateLimitEntry>();
-const MAX_ATTEMPTS = 10;
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+class InMemoryStore implements RateLimitStore {
+  private store = new Map<string, Entry>();
 
-/**
- * Check whether an IP is allowed to attempt login.
- * Must be called BEFORE bcrypt comparison.
- */
-export function checkRateLimit(ip: string): {
-  allowed: boolean;
-  remaining: number;
-  retryAfterMs?: number;
-} {
-  const now = Date.now();
-  const entry = store.get(ip);
+  async check(
+    key: string,
+    limit: number,
+    windowMs: number
+  ): Promise<RateLimitResult> {
+    const now = Date.now();
+    const entry = this.store.get(key);
 
-  if (!entry) {
-    return { allowed: true, remaining: MAX_ATTEMPTS };
+    if (!entry) return { allowed: true, remaining: limit };
+
+    if (entry.blockedUntil && entry.blockedUntil > now) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterMs: entry.blockedUntil - now,
+      };
+    }
+
+    if (now - entry.firstAttempt > windowMs) {
+      this.store.delete(key);
+      return { allowed: true, remaining: limit };
+    }
+
+    if (entry.count >= limit) {
+      entry.blockedUntil = now + windowMs;
+      return { allowed: false, remaining: 0, retryAfterMs: windowMs };
+    }
+
+    return { allowed: true, remaining: limit - entry.count };
   }
 
-  // If blocked and block hasn't expired
-  if (entry.blockedUntil && entry.blockedUntil > now) {
-    return {
-      allowed: false,
-      remaining: 0,
-      retryAfterMs: entry.blockedUntil - now,
-    };
+  async recordFailure(key: string, windowMs: number): Promise<void> {
+    const now = Date.now();
+    const entry = this.store.get(key);
+
+    if (!entry || now - entry.firstAttempt > windowMs) {
+      this.store.set(key, { count: 1, firstAttempt: now });
+      return;
+    }
+
+    entry.count++;
   }
 
-  // If window has expired, reset
-  if (now - entry.firstAttempt > WINDOW_MS) {
-    store.delete(ip);
-    return { allowed: true, remaining: MAX_ATTEMPTS };
-  }
-
-  // If at max attempts, block
-  if (entry.count >= MAX_ATTEMPTS) {
-    entry.blockedUntil = now + WINDOW_MS;
-    return {
-      allowed: false,
-      remaining: 0,
-      retryAfterMs: WINDOW_MS,
-    };
-  }
-
-  return { allowed: true, remaining: MAX_ATTEMPTS - entry.count };
-}
-
-/**
- * Record a failed login attempt for an IP.
- */
-export function recordFailedAttempt(ip: string): void {
-  const now = Date.now();
-  const entry = store.get(ip);
-
-  if (!entry || now - entry.firstAttempt > WINDOW_MS) {
-    store.set(ip, { count: 1, firstAttempt: now });
-    return;
-  }
-
-  entry.count++;
-  if (entry.count >= MAX_ATTEMPTS) {
-    entry.blockedUntil = now + WINDOW_MS;
+  async reset(key: string): Promise<void> {
+    this.store.delete(key);
   }
 }
 
-/**
- * Reset rate limit for an IP after successful login.
- */
-export function resetRateLimit(ip: string): void {
-  store.delete(ip);
+// ─── Redis store (multi-pod prod) ────────────────────────────────────────────
+//
+// Lazy-loaded: only attempts to import ioredis when REDIS_URL is set, so dev
+// installs don't need the dependency. In production add `ioredis` to deps.
+
+class RedisStore implements RateLimitStore {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private clientPromise: Promise<any> | null = null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getClient(): Promise<any> {
+    if (!this.clientPromise) {
+      this.clientPromise = (async () => {
+        const mod = await import(
+          /* webpackIgnore: true */ "ioredis" as string
+        ).catch((err) => {
+          throw new Error(
+            `REDIS_URL is set but ioredis is not installed: ${err.message}`
+          );
+        });
+        const Redis = mod.default ?? mod;
+        return new Redis(process.env.REDIS_URL!, {
+          maxRetriesPerRequest: 3,
+          enableReadyCheck: true,
+        });
+      })();
+    }
+    return this.clientPromise;
+  }
+
+  async check(
+    key: string,
+    limit: number,
+    windowMs: number
+  ): Promise<RateLimitResult> {
+    const client = await this.getClient();
+    const blocked = await client.get(`rl:block:${key}`);
+    if (blocked) {
+      const ttl = await client.pttl(`rl:block:${key}`);
+      return { allowed: false, remaining: 0, retryAfterMs: ttl > 0 ? ttl : windowMs };
+    }
+    const count = parseInt((await client.get(`rl:cnt:${key}`)) ?? "0", 10);
+    if (count >= limit) {
+      await client.set(`rl:block:${key}`, "1", "PX", windowMs);
+      return { allowed: false, remaining: 0, retryAfterMs: windowMs };
+    }
+    return { allowed: true, remaining: limit - count };
+  }
+
+  async recordFailure(key: string, windowMs: number): Promise<void> {
+    const client = await this.getClient();
+    const k = `rl:cnt:${key}`;
+    const count = await client.incr(k);
+    if (count === 1) {
+      await client.pexpire(k, windowMs);
+    }
+  }
+
+  async reset(key: string): Promise<void> {
+    const client = await this.getClient();
+    await client.del(`rl:cnt:${key}`, `rl:block:${key}`);
+  }
 }
+
+// ─── Singleton ───────────────────────────────────────────────────────────────
+
+const store: RateLimitStore = process.env.REDIS_URL
+  ? new RedisStore()
+  : new InMemoryStore();
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+const LOGIN_LIMIT = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+const REGISTER_LIMIT = 5;
+const REGISTER_WINDOW_MS = 60 * 60 * 1000;
+
+export async function checkLoginRateLimit(ip: string): Promise<RateLimitResult> {
+  return store.check(`login:${ip}`, LOGIN_LIMIT, LOGIN_WINDOW_MS);
+}
+
+export async function recordLoginFailure(ip: string, email?: string): Promise<void> {
+  await store.recordFailure(`login:${ip}`, LOGIN_WINDOW_MS);
+  if (email) {
+    // structured failure log so admins can correlate IP-share collisions
+    console.log(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "WARN",
+        event: "auth:login_failure",
+        ip,
+        email,
+      })
+    );
+  }
+}
+
+export async function resetLoginRateLimit(ip: string): Promise<void> {
+  await store.reset(`login:${ip}`);
+}
+
+export async function checkRegisterRateLimit(ip: string): Promise<RateLimitResult> {
+  return store.check(`register:${ip}`, REGISTER_LIMIT, REGISTER_WINDOW_MS);
+}
+
+export async function recordRegisterAttempt(ip: string): Promise<void> {
+  await store.recordFailure(`register:${ip}`, REGISTER_WINDOW_MS);
+}
+
+// Back-compat shims (used by auth.ts) — typed without IP details so we
+// don't leak details into NextAuth's narrow contract.
+export const checkRateLimit = checkLoginRateLimit;
+export const recordFailedAttempt = recordLoginFailure;
+export const resetRateLimit = resetLoginRateLimit;

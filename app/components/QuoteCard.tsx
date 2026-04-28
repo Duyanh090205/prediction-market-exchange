@@ -1,5 +1,6 @@
-import TakeRequestForm from "./TakeRequestForm";
+import LimitOrderForm from "./LimitOrderForm";
 import QuoteActions from "./QuoteActions";
+import AdminQuoteDelete from "./AdminQuoteDelete";
 
 interface QuoteMaker {
   id: number;
@@ -7,18 +8,13 @@ interface QuoteMaker {
   role: string;
 }
 
-interface TakeRequestStub {
-  id: number;
-}
-
 interface Quote {
   id: number;
-  bid: number;
-  ask: number;
+  bid: number | null;
+  ask: number | null;
   size: number;
   status: string;
   maker: QuoteMaker;
-  takeRequests: TakeRequestStub[];
 }
 
 interface QuoteCardProps {
@@ -31,7 +27,7 @@ interface QuoteCardProps {
 
 export default function QuoteCard({
   quote,
-  contractId: _contractId,
+  contractId,
   currentUserId,
   currentUserRole,
   variant,
@@ -41,7 +37,6 @@ export default function QuoteCard({
     !isOwner &&
     currentUserRole !== "ADMIN" &&
     quote.status === "OPEN";
-  const hasPendingRequests = quote.takeRequests.length > 0;
 
   if (variant === "prominent") {
     return (
@@ -91,20 +86,6 @@ export default function QuoteCard({
               <strong style={{ color: "#e4e4ed" }}>{quote.maker.username}</strong>
             </p>
           </div>
-          {hasPendingRequests && (
-            <span
-              style={{
-                padding: "0.2rem 0.6rem",
-                background: "rgba(245,158,11,0.1)",
-                borderRadius: "0.25rem",
-                fontSize: "0.6875rem",
-                color: "#f59e0b",
-                fontWeight: 600,
-              }}
-            >
-              {hasPendingRequests ? `${quote.takeRequests.length} pending` : ""}
-            </span>
-          )}
         </div>
 
         {/* Bid / Ask */}
@@ -131,7 +112,7 @@ export default function QuoteCard({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {quote.bid}
+              {quote.bid ?? "—"}
             </p>
           </div>
 
@@ -165,7 +146,7 @@ export default function QuoteCard({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {quote.ask}
+              {quote.ask ?? "—"}
             </p>
           </div>
         </div>
@@ -191,8 +172,9 @@ export default function QuoteCard({
 
         {/* Actions */}
         {canTake && (
-          <TakeRequestForm
+          <LimitOrderForm
             quoteId={quote.id}
+            contractId={contractId}
             quoteSize={quote.size}
             bid={quote.bid}
             ask={quote.ask}
@@ -204,8 +186,11 @@ export default function QuoteCard({
             currentBid={quote.bid}
             currentAsk={quote.ask}
             currentSize={quote.size}
-            hasPendingRequests={hasPendingRequests}
+            makerRole={quote.maker.role}
           />
+        )}
+        {!isOwner && currentUserRole === "ADMIN" && quote.status === "OPEN" && (
+          <AdminQuoteDelete quoteId={quote.id} makerName={quote.maker.username} />
         )}
       </div>
     );
@@ -233,20 +218,6 @@ export default function QuoteCard({
         <p style={{ margin: 0, fontSize: "0.8125rem", color: "#8888a0" }}>
           <strong style={{ color: "#e4e4ed" }}>{quote.maker.username}</strong>
         </p>
-        {hasPendingRequests && (
-          <span
-            style={{
-              padding: "0.15rem 0.5rem",
-              background: "rgba(245,158,11,0.1)",
-              borderRadius: "0.25rem",
-              fontSize: "0.6875rem",
-              color: "#f59e0b",
-              fontWeight: 600,
-            }}
-          >
-            {quote.takeRequests.length} pending
-          </span>
-        )}
       </div>
 
       {/* Bid / Ask / Size inline */}
@@ -259,13 +230,13 @@ export default function QuoteCard({
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.04em",
-              marginRight: "0.25rem",
+              marginRight: "0.35rem",
             }}
           >
-            B
+            BID
           </span>
           <span style={{ fontSize: "1.125rem", fontWeight: 700, color: "#22c55e" }}>
-            {quote.bid}
+            {quote.bid ?? "—"}
           </span>
         </span>
         <span style={{ color: "#2a2a3e" }}>/</span>
@@ -277,13 +248,13 @@ export default function QuoteCard({
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.04em",
-              marginRight: "0.25rem",
+              marginRight: "0.35rem",
             }}
           >
-            A
+            ASK
           </span>
           <span style={{ fontSize: "1.125rem", fontWeight: 700, color: "#ef4444" }}>
-            {quote.ask}
+            {quote.ask ?? "—"}
           </span>
         </span>
         <span style={{ marginLeft: "auto", fontSize: "0.8125rem", color: "#5a5a72" }}>
@@ -294,8 +265,9 @@ export default function QuoteCard({
 
       {/* Actions */}
       {canTake && (
-        <TakeRequestForm
+        <LimitOrderForm
           quoteId={quote.id}
+          contractId={contractId}
           quoteSize={quote.size}
           bid={quote.bid}
           ask={quote.ask}
@@ -307,7 +279,7 @@ export default function QuoteCard({
           currentBid={quote.bid}
           currentAsk={quote.ask}
           currentSize={quote.size}
-          hasPendingRequests={hasPendingRequests}
+          makerRole={quote.maker.role}
         />
       )}
     </div>

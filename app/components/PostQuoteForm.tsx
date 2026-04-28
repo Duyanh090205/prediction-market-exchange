@@ -5,10 +5,20 @@ import { useRouter } from "next/navigation";
 
 interface PostQuoteFormProps {
   contractId: number;
+  currentUserRole: string;
+  minPrice: number;
+  maxPrice: number;
 }
 
-export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
+export default function PostQuoteForm({
+  contractId,
+  currentUserRole,
+  minPrice,
+  maxPrice,
+}: PostQuoteFormProps) {
   const router = useRouter();
+  const isLP = currentUserRole === "LIQUIDITY_PROVIDER";
+
   const [bid, setBid] = useState("");
   const [ask, setAsk] = useState("");
   const [size, setSize] = useState("");
@@ -20,20 +30,46 @@ export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
     e.preventDefault();
     setError("");
 
-    const bidNum = parseInt(bid, 10);
-    const askNum = parseInt(ask, 10);
+    const bidStr = bid.trim();
+    const askStr = ask.trim();
+    const bidNum = bidStr === "" ? null : parseInt(bidStr, 10);
+    const askNum = askStr === "" ? null : parseInt(askStr, 10);
     const sizeNum = parseInt(size, 10);
 
-    if (isNaN(bidNum) || isNaN(askNum) || isNaN(sizeNum)) {
-      setError("All fields must be integers.");
+    if (bidStr !== "" && (bidNum === null || isNaN(bidNum))) {
+      setError("Bid must be an integer.");
       return;
     }
-    if (bidNum >= askNum) {
+    if (askStr !== "" && (askNum === null || isNaN(askNum))) {
+      setError("Ask must be an integer.");
+      return;
+    }
+    if (isNaN(sizeNum)) {
+      setError("Size must be an integer.");
+      return;
+    }
+    if (isLP && (bidNum === null || askNum === null)) {
+      setError("Market makers must post both bid and ask.");
+      return;
+    }
+    if (bidNum === null && askNum === null) {
+      setError("Provide at least a bid or an ask.");
+      return;
+    }
+    if (bidNum !== null && askNum !== null && bidNum >= askNum) {
       setError("Bid must be strictly less than ask.");
       return;
     }
     if (sizeNum < 1) {
       setError("Size must be at least 1.");
+      return;
+    }
+    if (bidNum !== null && (bidNum < minPrice || bidNum > maxPrice)) {
+      setError(`Bid must be between ${minPrice} and ${maxPrice}.`);
+      return;
+    }
+    if (askNum !== null && (askNum < minPrice || askNum > maxPrice)) {
+      setError(`Ask must be between ${minPrice} and ${maxPrice}.`);
       return;
     }
 
@@ -42,7 +78,12 @@ export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
       const res = await fetch("/api/quotes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractId, bid: bidNum, ask: askNum, size: sizeNum }),
+        body: JSON.stringify({
+          contractId,
+          bid: bidNum,
+          ask: askNum,
+          size: sizeNum,
+        }),
       });
 
       const data = await res.json();
@@ -154,6 +195,12 @@ export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
         </button>
       </div>
 
+      {!isLP && (
+        <p style={{ fontSize: "0.75rem", color: "#5a5a72", margin: "0 0 0.625rem 0" }}>
+          Leave bid or ask blank to post only one side.
+        </p>
+      )}
+
       {error && (
         <p
           style={{
@@ -181,13 +228,13 @@ export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
                 letterSpacing: "0.05em",
               }}
             >
-              Bid
+              Bid {isLP ? "" : "(optional)"}
             </label>
             <input
               type="number"
               value={bid}
               onChange={(e) => setBid(e.target.value)}
-              required
+              required={isLP}
               placeholder="200"
               style={{ ...inputStyle, borderColor: "rgba(34,197,94,0.3)" }}
             />
@@ -204,13 +251,13 @@ export default function PostQuoteForm({ contractId }: PostQuoteFormProps) {
                 letterSpacing: "0.05em",
               }}
             >
-              Ask
+              Ask {isLP ? "" : "(optional)"}
             </label>
             <input
               type="number"
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
-              required
+              required={isLP}
               placeholder="240"
               style={{ ...inputStyle, borderColor: "rgba(239,68,68,0.3)" }}
             />

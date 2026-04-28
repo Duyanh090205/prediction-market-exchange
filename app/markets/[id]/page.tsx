@@ -6,7 +6,10 @@ import Navbar from "@/app/components/Navbar";
 import QuoteCard from "@/app/components/QuoteCard";
 import HintPanel from "@/app/components/HintPanel";
 import PostQuoteForm from "@/app/components/PostQuoteForm";
-import PostHintForm from "@/app/components/PostHintForm";
+import MarketOrderForm from "@/app/components/MarketOrderForm";
+import AdminTradeDelete from "@/app/components/AdminTradeDelete";
+import AdminDeleteMarketButton from "@/app/components/AdminDeleteMarketButton";
+import { sideColor } from "@/lib/theme";
 
 export default async function MarketPage({
   params,
@@ -27,10 +30,6 @@ export default async function MarketPage({
         where: { status: "OPEN" },
         include: {
           maker: { select: { id: true, username: true, role: true } },
-          takeRequests: {
-            where: { status: "PENDING" },
-            select: { id: true },
-          },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -117,9 +116,18 @@ export default async function MarketPage({
             >
               {contract.status}
             </span>
+            {isAdmin && contract.status === "OPEN" && (
+              <AdminDeleteMarketButton contractId={contract.id} />
+            )}
           </div>
           <p style={{ margin: 0, fontSize: "0.9375rem", color: "#8888a0", lineHeight: 1.5 }}>
             {contract.description}
+          </p>
+          <p style={{ margin: "0.5rem 0 0", fontSize: "0.8125rem", color: "#5a5a72" }}>
+            Price band: <strong style={{ color: "#818cf8" }}>{contract.minPrice}</strong> – <strong style={{ color: "#818cf8" }}>{contract.maxPrice}</strong>
+            {contract.status === "SETTLED" && contract.settlementValue != null && (
+              <> · Settled at <strong style={{ color: "#818cf8" }}>{contract.settlementValue}</strong></>
+            )}
           </p>
         </div>
 
@@ -173,9 +181,6 @@ export default async function MarketPage({
                 borderRadius: "0.75rem",
               }}
             >
-              {(currentUserRole === "LIQUIDITY_PROVIDER" || currentUserRole === "ADMIN") && contract.status === "OPEN" && (
-                <PostHintForm contractId={contractId} />
-              )}
               <HintPanel
                 hints={contract.hints}
                 contractId={contractId}
@@ -217,7 +222,20 @@ export default async function MarketPage({
             ))}
 
             {canPostQuote && contract.status === "OPEN" && (
-              <PostQuoteForm contractId={contractId} />
+              <MarketOrderForm
+                contractId={contractId}
+                minPrice={contract.minPrice}
+                maxPrice={contract.maxPrice}
+              />
+            )}
+
+            {canPostQuote && contract.status === "OPEN" && (
+              <PostQuoteForm
+                contractId={contractId}
+                currentUserRole={currentUserRole}
+                minPrice={contract.minPrice}
+                maxPrice={contract.maxPrice}
+              />
             )}
           </div>
         </div>
@@ -259,7 +277,7 @@ export default async function MarketPage({
               >
                 <thead>
                   <tr>
-                    {["Taker", "Side", "Strike", "Size", "Maker"].map((h) => (
+                    {["Taker", "Side", "Strike", "Size", "Maker", ...(isAdmin ? [""] : [])].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -294,7 +312,7 @@ export default async function MarketPage({
                         style={{
                           padding: "0.625rem 0.75rem",
                           fontWeight: 700,
-                          color: t.takerSide === "OVER" ? "#ef4444" : "#22c55e",
+                          color: sideColor(t.takerSide as "OVER" | "UNDER").fg,
                           borderBottom: "1px solid #1a1a2e",
                         }}
                       >
@@ -330,6 +348,11 @@ export default async function MarketPage({
                       >
                         {t.maker.username}
                       </td>
+                      {isAdmin && (
+                        <td style={{ padding: "0.625rem 0.75rem", borderBottom: "1px solid #1a1a2e" }}>
+                          <AdminTradeDelete tradeId={t.id} />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

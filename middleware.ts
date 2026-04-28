@@ -11,8 +11,8 @@ export default auth(function middleware(req) {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  // Always allow NextAuth's own API routes
-  if (pathname.startsWith(PUBLIC_API_PREFIX)) {
+  // Always allow NextAuth's own API routes and health check
+  if (pathname.startsWith(PUBLIC_API_PREFIX) || pathname === "/api/health") {
     return NextResponse.next();
   }
 

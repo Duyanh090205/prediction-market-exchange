@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 
 interface QuoteActionsProps {
   quoteId: number;
-  currentBid: number;
-  currentAsk: number;
+  currentBid: number | null;
+  currentAsk: number | null;
   currentSize: number;
-  hasPendingRequests: boolean;
+  makerRole?: string;
 }
 
 export default function QuoteActions({
@@ -16,12 +16,13 @@ export default function QuoteActions({
   currentBid,
   currentAsk,
   currentSize,
-  hasPendingRequests,
+  makerRole,
 }: QuoteActionsProps) {
   const router = useRouter();
+  const isLP = makerRole === "LIQUIDITY_PROVIDER";
   const [editing, setEditing] = useState(false);
-  const [bid, setBid] = useState(String(currentBid));
-  const [ask, setAsk] = useState(String(currentAsk));
+  const [bid, setBid] = useState(currentBid == null ? "" : String(currentBid));
+  const [ask, setAsk] = useState(currentAsk == null ? "" : String(currentAsk));
   const [size, setSize] = useState(String(currentSize));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,15 +31,33 @@ export default function QuoteActions({
     e.preventDefault();
     setError("");
 
-    const bidNum = parseInt(bid, 10);
-    const askNum = parseInt(ask, 10);
+    const bidStr = bid.trim();
+    const askStr = ask.trim();
+    const bidNum = bidStr === "" ? null : parseInt(bidStr, 10);
+    const askNum = askStr === "" ? null : parseInt(askStr, 10);
     const sizeNum = parseInt(size, 10);
 
-    if (isNaN(bidNum) || isNaN(askNum) || isNaN(sizeNum)) {
-      setError("All fields must be integers.");
+    if (bidStr !== "" && (bidNum === null || isNaN(bidNum))) {
+      setError("Bid must be an integer.");
       return;
     }
-    if (bidNum >= askNum) {
+    if (askStr !== "" && (askNum === null || isNaN(askNum))) {
+      setError("Ask must be an integer.");
+      return;
+    }
+    if (isNaN(sizeNum)) {
+      setError("Size must be an integer.");
+      return;
+    }
+    if (isLP && (bidNum === null || askNum === null)) {
+      setError("Market makers must keep both bid and ask.");
+      return;
+    }
+    if (bidNum === null && askNum === null) {
+      setError("Quote must keep at least a bid or an ask.");
+      return;
+    }
+    if (bidNum !== null && askNum !== null && bidNum >= askNum) {
       setError("Bid must be strictly less than ask.");
       return;
     }
@@ -71,7 +90,7 @@ export default function QuoteActions({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Cancel this quote? Any pending requests will be rejected.")) {
+    if (!confirm("Cancel this quote?")) {
       return;
     }
 
@@ -124,7 +143,8 @@ export default function QuoteActions({
               type="number"
               value={bid}
               onChange={(e) => setBid(e.target.value)}
-              required
+              required={isLP}
+              placeholder={isLP ? "" : "blank = none"}
               style={{ ...inputStyle, marginLeft: "0.25rem", borderColor: "rgba(34,197,94,0.3)" }}
             />
           </label>
@@ -134,7 +154,8 @@ export default function QuoteActions({
               type="number"
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
-              required
+              required={isLP}
+              placeholder={isLP ? "" : "blank = none"}
               style={{ ...inputStyle, marginLeft: "0.25rem", borderColor: "rgba(239,68,68,0.3)" }}
             />
           </label>
@@ -173,8 +194,8 @@ export default function QuoteActions({
             onClick={() => {
               setEditing(false);
               setError("");
-              setBid(String(currentBid));
-              setAsk(String(currentAsk));
+              setBid(currentBid == null ? "" : String(currentBid));
+              setAsk(currentAsk == null ? "" : String(currentAsk));
               setSize(String(currentSize));
             }}
             style={{
@@ -197,13 +218,7 @@ export default function QuoteActions({
   return (
     <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
       <button
-        onClick={() => {
-          if (hasPendingRequests) {
-            alert("Resolve all pending requests before editing.");
-            return;
-          }
-          setEditing(true);
-        }}
+        onClick={() => setEditing(true)}
         disabled={loading}
         style={{
           padding: "0.3rem 0.625rem",
@@ -212,10 +227,9 @@ export default function QuoteActions({
           borderRadius: "0.25rem",
           color: "#8888a0",
           fontSize: "0.75rem",
-          cursor: hasPendingRequests ? "not-allowed" : "pointer",
-          opacity: hasPendingRequests ? 0.5 : 1,
+          cursor: "pointer",
         }}
-        title={hasPendingRequests ? "Resolve pending requests first" : "Edit quote"}
+        title="Edit quote"
       >
         Edit
       </button>

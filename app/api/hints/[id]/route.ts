@@ -115,10 +115,12 @@ export async function DELETE(
       return NextResponse.json({ error: "Hint not found" }, { status: 404 });
     }
 
-    if (hint.authorId !== Number(session.user.id)) {
+    const isAuthor = hint.authorId === Number(session.user.id);
+    const isAdmin = session.user.role === "ADMIN";
+    if (!isAuthor && !isAdmin) {
       reqLog.finish(403, session.user.id);
       return NextResponse.json(
-        { error: "Only the author can delete this hint" },
+        { error: "Only the author or an admin can delete this hint" },
         { status: 403 }
       );
     }

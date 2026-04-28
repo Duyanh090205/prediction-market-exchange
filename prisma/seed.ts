@@ -103,6 +103,8 @@ async function main() {
           hashedPassword,
           balance: userData.balance,
           role: userData.role,
+          status: "ACTIVE",
+          approvedAt: new Date(),
         },
       });
 

@@ -24,6 +24,8 @@ export default async function HomePage() {
   });
 
   const isAdmin = session.user.role === "ADMIN";
+  const isLP = session.user.role === "LIQUIDITY_PROVIDER";
+  const canCreateMarket = isAdmin || isLP;
 
   return (
     <>
@@ -57,10 +59,9 @@ export default async function HomePage() {
                 : `${contracts.length} active ${contracts.length === 1 ? "market" : "markets"}`}
             </p>
           </div>
-
-          {isAdmin && (
+          {canCreateMarket && (
             <Link
-              href="/admin/contracts/new"
+              href="/markets/create"
               style={{
                 padding: "0.5rem 1.25rem",
                 background: "#6366f1",
@@ -88,7 +89,7 @@ export default async function HomePage() {
             }}
           >
             <p style={{ color: "#5a5a72", fontSize: "1rem", margin: 0 }}>
-              {isAdmin
+              {canCreateMarket
                 ? "No contracts yet. Create the first one to get started."
                 : "No markets open yet. Check back soon."}
             </p>

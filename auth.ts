@@ -3,9 +3,9 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import {
-  checkRateLimit,
-  recordFailedAttempt,
-  resetRateLimit,
+  checkLoginRateLimit,
+  recordLoginFailure,
+  resetLoginRateLimit,
 } from "@/lib/rate-limiter";
 import { authConfig } from "./auth.config";
 
@@ -39,7 +39,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           request.headers.get("x-real-ip") ??
           "unknown";
 
-        const rateLimitResult = checkRateLimit(ip);
+        const rateLimitResult = await checkLoginRateLimit(ip);
         if (!rateLimitResult.allowed) {
           throw new Error(
             "Too many login attempts. Please try again in 15 minutes."
@@ -52,19 +52,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
 
         if (!user) {
-          recordFailedAttempt(ip);
+          await recordLoginFailure(ip, email);
           return null;
         }
 
         // Verify password with bcrypt (work factor 12 was used at hash time)
         const isValid = await bcrypt.compare(password, user.hashedPassword);
         if (!isValid) {
-          recordFailedAttempt(ip);
+          await recordLoginFailure(ip, email);
           return null;
         }
 
+        // Block PENDING / SUSPENDED users at the credential layer
+        if (user.status !== "ACTIVE") {
+          await recordLoginFailure(ip, email);
+          throw new Error(
+            user.status === "PENDING"
+              ? "Account pending admin approval"
+              : "Account suspended"
+          );
+        }
+
         // Successful login — reset rate limit counter
-        resetRateLimit(ip);
+        await resetLoginRateLimit(ip);
 
         return {
           id: String(user.id),
@@ -89,27 +99,38 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
 
     async session({ session, token }) {
-      // Session re-validation: refetch user from DB on every request
-      // Invalidate if user deleted or role changed
-      if (!token.id) {
+      // Session re-validation with 30s cache:
+      //   - Reduces DB roundtrip on every page render (prod scale).
+      //   - Role/status changes propagate within 30s.
+      //   - User deletion is also detected within 30s.
+      if (!token.id) return session;
+
+      const now = Date.now();
+      const lastChecked = (token.lastChecked as number | undefined) ?? 0;
+      const SESSION_REVALIDATE_MS = 30_000;
+
+      if (now - lastChecked < SESSION_REVALIDATE_MS && token.role && token.username) {
+        // Cache hit — use values already on the token.
+        session.user.id = String(token.id);
+        session.user.role = token.role as string;
+        session.user.username = token.username as string;
         return session;
       }
 
       const dbUser = await prisma.user.findUnique({
         where: { id: Number(token.id) },
-        select: { id: true, role: true, username: true },
+        select: { id: true, role: true, username: true, status: true },
       });
 
-      if (!dbUser) {
-        // User was deleted — invalidate session
+      if (!dbUser || dbUser.status !== "ACTIVE") {
+        // Deleted, suspended, or pending — invalidate session
         session.user = undefined as unknown as typeof session.user;
         return session;
       }
 
-      if (dbUser.role !== token.role) {
-        // Role changed — update token and session
-        token.role = dbUser.role;
-      }
+      token.role = dbUser.role;
+      token.username = dbUser.username;
+      token.lastChecked = now;
 
       session.user.id = String(dbUser.id);
       session.user.role = dbUser.role;

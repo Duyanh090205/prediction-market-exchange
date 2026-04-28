@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
+import { calculateAvailableMargin } from "@/lib/margin";
 
 // POST /api/quotes — USER or LIQUIDITY_PROVIDER only (Admin blocked)
 export async function POST(request: NextRequest) {
@@ -32,25 +33,48 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { contractId, bid, ask, size } = body;
+    const isLP = session.user.role === "LIQUIDITY_PROVIDER";
 
-    // Validate all required fields
-    if (contractId == null || bid == null || ask == null || size == null) {
+    if (contractId == null || size == null) {
       reqLog.finish(400, session.user.id);
       return NextResponse.json(
-        { error: "contractId, bid, ask, and size are required" },
+        { error: "contractId and size are required" },
         { status: 400 }
       );
     }
 
-    if (!Number.isInteger(bid) || !Number.isInteger(ask) || !Number.isInteger(size)) {
+    // LPs must post both sides (they're market makers)
+    if (isLP && (bid == null || ask == null)) {
       reqLog.finish(400, session.user.id);
       return NextResponse.json(
-        { error: "bid, ask, and size must be integers" },
+        { error: "Market makers must post both bid and ask" },
         { status: 400 }
       );
     }
 
-    if (bid >= ask) {
+    // Everyone else: at least one side required
+    if (bid == null && ask == null) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json(
+        { error: "Must provide at least a bid or an ask" },
+        { status: 400 }
+      );
+    }
+
+    if (bid != null && !Number.isInteger(bid)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json({ error: "bid must be an integer" }, { status: 400 });
+    }
+    if (ask != null && !Number.isInteger(ask)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
+    }
+    if (!Number.isInteger(size)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
+    }
+
+    if (bid != null && ask != null && bid >= ask) {
       reqLog.finish(400, session.user.id);
       return NextResponse.json(
         { error: "bid must be strictly less than ask" },
@@ -66,10 +90,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify contract exists and is OPEN
+    // Verify contract exists, is OPEN, and bid/ask fall inside its price band.
     const contract = await prisma.contract.findUnique({
       where: { id: Number(contractId) },
-      select: { id: true, status: true },
+      select: { id: true, status: true, minPrice: true, maxPrice: true },
     });
 
     if (!contract) {
@@ -86,13 +110,42 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
+    if (bid != null && (bid < contract.minPrice || bid > contract.maxPrice)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json(
+        { error: `bid must be in [${contract.minPrice}, ${contract.maxPrice}]` },
+        { status: 400 }
+      );
+    }
+    if (ask != null && (ask < contract.minPrice || ask > contract.maxPrice)) {
+      reqLog.finish(400, session.user.id);
+      return NextResponse.json(
+        { error: `ask must be in [${contract.minPrice}, ${contract.maxPrice}]` },
+        { status: 400 }
+      );
+    }
+
+    // Worst-case for the maker if their full quote size were taken on the
+    // adverse side: -size (per binary spread bet semantics). Reject the post
+    // if the maker doesn't have margin to back what they're advertising.
+    const makerId = Number(session.user.id);
+    const available = await calculateAvailableMargin(makerId);
+    if (available < size) {
+      reqLog.finish(422, session.user.id);
+      return NextResponse.json(
+        {
+          error: `Insufficient margin to back this quote: available ${available}, required ${size}`,
+        },
+        { status: 422 }
+      );
+    }
 
     const quote = await prisma.quote.create({
       data: {
         contractId: Number(contractId),
-        makerId: Number(session.user.id),
-        bid,
-        ask,
+        makerId,
+        bid: bid ?? null,
+        ask: ask ?? null,
         size,
         status: "OPEN",
       },

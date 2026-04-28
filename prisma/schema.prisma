@@ -1,5 +1,5 @@
 // Prisma Schema — Trading Game Platform
-// All 12 tables defined per implementation_plan.md Section 6, Step 3
+// All 11 tables (TakeRequest dropped in phase-1 migration)
 
 generator client {
   provider = "prisma-client-js"
@@ -18,6 +18,12 @@ enum Role {
   USER
 }
 
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
 enum ContractStatus {
   OPEN
   SETTLED
@@ -34,14 +40,6 @@ enum Side {
   UNDER
 }
 
-enum TakeRequestStatus {
-  PENDING
-  CONFIRMED
-  REJECTED
-  CANCELLED
-  EXPIRED
-}
-
 enum TradeStatus {
   OPEN
   SETTLED
@@ -49,31 +47,35 @@ enum TradeStatus {
 
 enum EventType {
   INITIAL_SEED
-  TRADE_CONFIRM
   SETTLEMENT
+  ADMIN_ADJUSTMENT
 }
 
 // ─── Models ─────────────────────────────────────────────────────────────────
 
 model User {
-  id             Int      @id @default(autoincrement())
-  username       String   @unique
-  email          String   @unique
+  id             Int        @id @default(autoincrement())
+  username       String     @unique
+  email          String     @unique
   hashedPassword String
-  balance        Int      @default(1000)
-  role           Role     @default(USER)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  balance        Int        @default(0)
+  role           Role       @default(USER)
+  status         UserStatus @default(PENDING)
+  approvedAt     DateTime?
+  approvedBy     Int?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   // Relations
   quotes              Quote[]
-  takeRequests         TakeRequest[]
   tradesAsTaker        Trade[]              @relation("TakerTrades")
   tradesAsMaker        Trade[]              @relation("MakerTrades")
   hints                Hint[]
   notifications        Notification[]
   balanceLedger        BalanceLedger[]
   passwordResetTokens  PasswordResetToken[]
+
+  @@index([status])
 }
 
 model Contract {
@@ -81,6 +83,8 @@ model Contract {
   title           String
   description     String
   status          ContractStatus @default(OPEN)
+  minPrice        Int            @default(0)
+  maxPrice        Int            @default(100)
   settlementValue Int?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -95,54 +99,37 @@ model Quote {
   id         Int         @id @default(autoincrement())
   contractId Int
   makerId    Int
-  bid        Int
-  ask        Int
+  bid        Int?
+  ask        Int?
   size       Int
   status     QuoteStatus @default(OPEN)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
   // Relations
-  contract     Contract      @relation(fields: [contractId], references: [id])
-  maker        User          @relation(fields: [makerId], references: [id])
-  takeRequests TakeRequest[]
-  trades       Trade[]
+  contract Contract @relation(fields: [contractId], references: [id])
+  maker    User     @relation(fields: [makerId], references: [id])
+  trades   Trade[]
 
   @@index([contractId])
   @@index([makerId])
-}
-
-model TakeRequest {
-  id          Int               @id @default(autoincrement())
-  quoteId     Int
-  requesterId Int
-  side        Side
-  size        Int
-  status      TakeRequestStatus @default(PENDING)
-  expiresAt   DateTime
-  createdAt   DateTime          @default(now())
-
-  // Relations
-  quote     Quote @relation(fields: [quoteId], references: [id])
-  requester User  @relation(fields: [requesterId], references: [id])
-
-  @@index([quoteId])
-  @@index([requesterId])
+  @@index([contractId, status])
 }
 
 model Trade {
-  id         Int         @id @default(autoincrement())
-  contractId Int
-  quoteId    Int
-  takerId    Int
-  makerId    Int
-  takerSide  Side
-  strike     Int
-  size       Int
-  status     TradeStatus @default(OPEN)
-  takerPnl   Int?
-  makerPnl   Int?
-  createdAt  DateTime    @default(now())
+  id             Int         @id @default(autoincrement())
+  contractId     Int
+  quoteId        Int
+  takerId        Int
+  makerId        Int
+  takerSide      Side
+  strike         Int
+  size           Int
+  status         TradeStatus @default(OPEN)
+  takerPnl       Int?
+  makerPnl       Int?
+  idempotencyKey String?
+  createdAt      DateTime    @default(now())
 
   // Relations
   contract Contract @relation(fields: [contractId], references: [id])
@@ -150,9 +137,12 @@ model Trade {
   taker    User     @relation("TakerTrades", fields: [takerId], references: [id])
   maker    User     @relation("MakerTrades", fields: [makerId], references: [id])
 
+  @@unique([idempotencyKey, quoteId])
   @@index([contractId])
   @@index([takerId])
   @@index([makerId])
+  @@index([status])
+  @@index([contractId, status])
 }
 
 model Hint {
@@ -187,7 +177,7 @@ model Notification {
 
 model NotificationArchive {
   id                Int      @id @default(autoincrement())
-  originalId        Int
+  originalId        Int      @unique
   userId            Int
   message           String   @db.Text
   isRead            Boolean
@@ -205,7 +195,7 @@ model BalanceLedger {
   eventType    EventType
   tradeId      Int?
   contractId   Int?
-  initiatedBy  Int
+  initiatedBy  Int?
   note         String    @db.Text
   createdAt    DateTime  @default(now())
 
@@ -214,6 +204,7 @@ model BalanceLedger {
 
   @@index([userId])
   @@index([eventType])
+  @@index([userId, createdAt])
 }
 
 model IdempotencyKey {
@@ -247,9 +238,16 @@ model AdminAuditLog {
   id           Int      @id @default(autoincrement())
   adminId      Int
   action       String
+  targetType   String?
+  targetId     Int?
   targetUserId Int?
+  metadata     Json?
+  ipAddress    String?
   note         String   @db.Text
   createdAt    DateTime @default(now())
 
   @@index([adminId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }

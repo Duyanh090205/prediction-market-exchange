@@ -28,12 +28,16 @@ interface HintPanelProps {
 function HintItem({
   hint,
   currentUserId,
+  currentUserRole,
+  onDelete,
 }: {
   hint: Hint;
   currentUserId: number;
+  currentUserRole: string;
+  onDelete: (id: number) => void;
 }) {
-  const router = useRouter();
   const isAuthor = hint.author.id === currentUserId;
+  const canDelete = isAuthor || currentUserRole === "ADMIN";
   const [loading, setLoading] = useState(false);
 
   const linkText = hint.linkLabel || hint.linkUrl;
@@ -44,14 +48,15 @@ function HintItem({
     try {
       const res = await fetch(`/api/hints/${hint.id}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
       });
-      if (res.ok) router.refresh();
-      else {
-        const d = await res.json();
-        alert(d.error ?? "Failed to delete hint.");
+      if (res.ok) {
+        onDelete(hint.id);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error ?? `Delete failed (${res.status})`);
       }
+    } catch {
+      alert("Network error — could not delete hint.");
     } finally {
       setLoading(false);
     }
@@ -119,7 +124,7 @@ function HintItem({
             minute: "2-digit",
           })}
         </span>
-        {isAuthor && (
+        {canDelete && (
           <button
             onClick={handleDelete}
             disabled={loading}
@@ -138,7 +143,7 @@ function HintItem({
               ((e.currentTarget as HTMLButtonElement).style.color = "#5a5a72")
             }
           >
-            Delete
+            {loading ? "Deleting…" : "Delete"}
           </button>
         )}
       </div>
@@ -146,7 +151,13 @@ function HintItem({
   );
 }
 
-function PostHintForm({ contractId }: { contractId: number }) {
+function PostHintForm({
+  contractId,
+  onPosted,
+}: {
+  contractId: number;
+  onPosted: (hint: Hint) => void;
+}) {
   const router = useRouter();
   const [content, setContent] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -179,6 +190,7 @@ function PostHintForm({ contractId }: { contractId: number }) {
       setLinkUrl("");
       setLinkLabel("");
       setOpen(false);
+      onPosted(data.hint);
       router.refresh();
     } catch {
       setError("Unexpected error.");
@@ -320,8 +332,17 @@ export default function HintPanel({
   currentUserId,
   currentUserRole,
 }: HintPanelProps) {
+  const [localHints, setLocalHints] = useState<Hint[]>(hints);
   const canPostHint =
     currentUserRole === "LIQUIDITY_PROVIDER" || currentUserRole === "ADMIN";
+
+  const handleDelete = (id: number) => {
+    setLocalHints((prev) => prev.filter((h) => h.id !== id));
+  };
+
+  const handlePosted = (hint: Hint) => {
+    setLocalHints((prev) => [...prev, hint]);
+  };
 
   return (
     <div>
@@ -335,23 +356,29 @@ export default function HintPanel({
           margin: "0 0 0.75rem",
         }}
       >
-        Hints ({hints.length})
+        Hints ({localHints.length})
       </p>
 
-      {hints.length === 0 && (
+      {localHints.length === 0 && (
         <p style={{ fontSize: "0.875rem", color: "#5a5a72", margin: "0 0 0.5rem" }}>
           No hints posted yet.
         </p>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        {hints.map((h) => (
-          <HintItem key={h.id} hint={h} currentUserId={currentUserId} />
+        {localHints.map((h) => (
+          <HintItem
+            key={h.id}
+            hint={h}
+            currentUserId={currentUserId}
+            currentUserRole={currentUserRole}
+            onDelete={handleDelete}
+          />
         ))}
       </div>
 
       {canPostHint && (
-        <PostHintForm contractId={contractId} />
+        <PostHintForm contractId={contractId} onPosted={handlePosted} />
       )}
     </div>
   );

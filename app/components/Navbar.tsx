@@ -1,6 +1,10 @@
 import { auth } from "@/auth";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
+import NotificationPanel from "./NotificationPanel";
+import PortfolioLive from "./PortfolioLive";
+import { prisma } from "@/lib/prisma";
+import { calculateAvailableMargin } from "@/lib/margin";
 
 const ROLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   LIQUIDITY_PROVIDER: {
@@ -21,6 +25,14 @@ export default async function Navbar() {
 
   const { username, role } = session.user;
   const badge = ROLE_BADGE[role];
+  const userId = Number(session.user.id);
+
+  const [user, availableMargin] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { balance: true } }),
+    calculateAvailableMargin(userId),
+  ]);
+
+  if (!user) return null;
 
   return (
     <nav
@@ -38,41 +50,38 @@ export default async function Navbar() {
         borderBottom: "1px solid #2a2a3e",
       }}
     >
-      {/* Left: logo */}
-      <Link
-        href="/"
-        style={{
-          fontSize: "1rem",
-          fontWeight: 700,
-          background: "linear-gradient(135deg, #6366f1, #818cf8)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          textDecoration: "none",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        Trading Game
-      </Link>
+      {/* Left: logo + nav links */}
+      <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+        <Link
+          href="/"
+          style={{
+            fontSize: "1rem",
+            fontWeight: 700,
+            background: "linear-gradient(135deg, #6366f1, #818cf8)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            textDecoration: "none",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          Trading Game
+        </Link>
+        <Link href="/leaderboard" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
+          Leaderboard
+        </Link>
+        <Link href="/positions" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
+          Positions
+        </Link>
+        {role === "ADMIN" && (
+          <Link href="/admin" style={{ fontSize: "0.875rem", color: "#f97316", textDecoration: "none" }}>
+            Admin
+          </Link>
+        )}
+      </div>
 
       {/* Right: user info */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        {/* Notification bell stub */}
-        <div
-          title="Notifications (coming soon)"
-          style={{
-            width: "2rem",
-            height: "2rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: "0.375rem",
-            color: "#5a5a72",
-            cursor: "default",
-            fontSize: "1rem",
-          }}
-        >
-          🔔
-        </div>
+        <NotificationPanel />
 
         {badge && (
           <span
@@ -89,17 +98,25 @@ export default async function Navbar() {
           </span>
         )}
 
-        <span
-          style={{
-            fontSize: "0.875rem",
-            color: "#e4e4ed",
-            fontWeight: 500,
-          }}
-        >
-          {username}
-        </span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginRight: "0.5rem" }}>
+          <span
+            style={{
+              fontSize: "0.875rem",
+              color: "#e4e4ed",
+              fontWeight: 600,
+            }}
+          >
+            {username}
+          </span>
+          <div style={{ fontSize: "0.7rem", color: "#8888a0", display: "flex", gap: "0.4rem" }}>
+            <span>Bal: <strong style={{ color: "#e4e4ed", fontWeight: 500 }}>{user.balance}</strong></span>
+            <span>|</span>
+            <span>Margin: <strong style={{ color: availableMargin >= 0 ? "#10b981" : "#ef4444", fontWeight: 500 }}>{availableMargin}</strong></span>
+          </div>
+        </div>
 
         <SignOutButton />
+        <PortfolioLive />
       </div>
     </nav>
   );

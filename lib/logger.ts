@@ -95,8 +95,53 @@ export function createRequestLogger(request: Request) {
       });
     },
 
-    error(error: unknown, userId?: number | string) {
-      logError(request.method, url.pathname, error, userId);
+    error(
+      error: unknown,
+      userId?: number | string,
+      extra?: Record<string, unknown>
+    ) {
+      const logEntry: LogEntry = {
+        timestamp: new Date().toISOString(),
+        level: "ERROR",
+        method: request.method,
+        path: url.pathname,
+        userId,
+        processingTimeMs: Date.now() - start,
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        ...extra,
+      };
+      console.error(JSON.stringify(logEntry));
     },
   };
+}
+
+/**
+ * Sanitize a request body for logging — drops sensitive fields and truncates
+ * any string > 500 chars. Use when you need to record what payload caused
+ * a 4xx/5xx without leaking passwords or PII.
+ */
+export function sanitizeBodyForLog(body: unknown): unknown {
+  if (!body || typeof body !== "object") return body;
+  const SENSITIVE = new Set([
+    "password",
+    "hashedPassword",
+    "token",
+    "tempPassword",
+    "secret",
+    "Idempotency-Key",
+  ]);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    if (SENSITIVE.has(k)) {
+      out[k] = "[REDACTED]";
+    } else if (typeof v === "string" && v.length > 500) {
+      out[k] = v.slice(0, 500) + "…";
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }

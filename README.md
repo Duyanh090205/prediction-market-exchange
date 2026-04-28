@@ -1,60 +1,82 @@
 # Trading Game Platform
 
-A private prediction market web application for a group of friends. Players bet on numerical outcomes using binary spread betting — OVER/UNDER a strike price, with fixed ±size coin payouts.
+A private prediction market for a group of friends. Players bet on numerical outcomes using binary spread betting — OVER/UNDER a strike price, with fixed ±size coin payouts. Features an instant-execution matching engine with Double Margining and real-time WebSocket updates.
+
+**Live at**: [marketgame.iterlight.com](https://marketgame.iterlight.com)
 
 ## How It Works
 
 1. **Admin** creates a contract — a question with one real numerical answer
-2. **Sam** (the market maker) posts Bid/Ask/Size quotes
-3. **Players** submit take requests on quotes, choosing Over or Under
-4. The quote owner **confirms or rejects** each request
-5. Confirmed requests become **binding trades**
-6. **Admin settles** the contract by entering the real answer — coins change hands
+2. **Market makers** post Bid/Ask/Size quotes on the order book
+3. **Players** hit quotes instantly via LIMIT orders, or sweep the book with MARKET orders
+4. Trades execute **atomically** — no manual confirmation needed
+5. **Admin settles** the contract by entering the real answer — coins change hands
+6. **Leaderboard** tracks realized P&L across all settled contracts
+
+## User Roles
+
+| Role | Who | Balance | Permissions |
+|------|-----|---------|------------|
+| **ADMIN** | Platform manager | 1,000 | Create contracts, settle contracts, create user accounts, generate password reset tokens. **Cannot trade.** |
+| **LIQUIDITY_PROVIDER** | Sam (primary market maker) | 10,000 | Quotes displayed prominently on every market page. Can post hints. Trades like any user. |
+| **USER** | All other players | 1,000 | Post quotes (single-sided OK), take positions, view leaderboard |
+
+- **Admin password reset**: Admin generates a signed JWT token (1h expiry) → sends link to user via Discord → user sets new password. Admin never sees the password.
+- **Sam's role** is what makes his quotes appear large in the left column — enforced by checking `quote.maker.role === LIQUIDITY_PROVIDER`.
+- Admin is **strictly blocked** from posting quotes or placing orders at the API layer.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
+| Framework | Next.js 15 (App Router, Server + Client Components) |
 | Database | PostgreSQL (Railway) |
 | ORM | Prisma |
-| Backend | Next.js App Router (Route Handlers) |
-| Auth | NextAuth.js v5 |
-| Frontend | Next.js (Server & Client Components) + Tailwind CSS |
-| Hosting | Digital Ocean App Platform |
-| Domain | iterlight.com |
+| Auth | NextAuth.js v5 (JWT strategy) |
+| Real-time | Socket.IO (custom Node.js server) |
+| Styling | Tailwind CSS |
+| Hosting | DigitalOcean App Platform |
+| Domain | marketgame.iterlight.com |
 
 ## Project Structure
 
 ```
-app/                    # Next.js App Router — pages & API routes
-├── api/                # Route Handlers (business logic)
-│   ├── auth/           # NextAuth catch-all
-│   ├── contracts/      # Contract CRUD + settlement
-│   ├── quotes/         # Quote CRUD
-│   ├── take-requests/  # Submit, confirm, reject, cancel
-│   ├── hints/          # Hint CRUD
-│   ├── notifications/  # Notification polling + mark read
-│   ├── users/          # User info (me endpoint)
-│   └── health/         # Health check
-├── markets/[id]/       # Two-column market page
-├── leaderboard/        # P&L rankings
-├── positions/          # User's open trades
-├── admin/              # Admin panel (contracts, users, settle)
-└── reset-password/     # Password reset page
+app/                        # Next.js App Router — pages & API routes
+├── api/
+│   ├── orders/             # ★ Matching Engine (LIMIT + MARKET)
+│   ├── contracts/          # Contract CRUD + settlement
+│   ├── quotes/             # Quote CRUD
+│   ├── hints/              # Hint CRUD
+│   ├── notifications/      # Notification polling + mark read
+│   ├── trades/             # Trade management (admin)
+│   ├── users/              # User info (me endpoint)
+│   └── health/             # Health check
+├── components/             # 12 React components
+├── markets/[id]/           # Contract detail page (order book)
+├── leaderboard/            # P&L rankings
+├── positions/              # User's open trades
+└── admin/                  # Admin panel (contracts, users, settle)
 
-lib/                    # Shared utilities
-├── margin.ts           # Margin calculator (worst-case P&L simulation)
-├── pnl.ts              # P&L calculation (binary spread betting)
-├── idempotency.ts      # Idempotency-Key validation & dedup
-├── rate-limiter.ts     # Login rate limiter (in-memory)
-├── csrf.ts             # CSRF protection
-└── logger.ts           # Structured logging
+lib/                        # Business logic
+├── matching-engine.ts      # ★ LIMIT + MARKET order execution
+├── margin.ts               # Margin calculator (tx-aware, Double Margining)
+├── pnl.ts                  # Binary P&L (OVER/UNDER × strike × size)
+├── socket-client.ts        # Socket.IO client singleton
+├── socket-events.ts        # Server-side WS event emitters
+├── idempotency.ts          # UUIDv7 dedup
+├── csrf.ts                 # CSRF protection
+├── rate-limiter.ts         # Login rate limiter (10/15min per IP)
+└── logger.ts               # Structured logging
 
-prisma/
-├── schema.prisma       # Database schema (12 tables)
-└── seed.ts             # Initial user seeding
+server.js                   # Custom Node.js server (Next.js + Socket.IO)
+prisma/schema.prisma        # Database schema (11 tables)
+__tests__/                  # 35 unit tests (matching, margin, P&L)
 
-workflow/               # Implementation plan & checkpoint tracking
+workflow/                   # Documentation & planning
+├── project-walkthrough.md  # ★ Complete project walkthrough
+├── phase-1.md              # Checkpoint tracker
+├── trading_platform_plan_v5.md  # Original master plan
+└── hyperliquid_research_report.md  # HyperLiquid architecture research
 ```
 
 ## Local Development
@@ -66,34 +88,42 @@ workflow/               # Implementation plan & checkpoint tracking
 
 ### Setup
 
-```bash
-# 1. Clone the repo
+```powershell
+# 1. Clone the repo (if you haven't already)
 git clone https://github.com/IterLight-Lab/trading-game-platform.git
 cd trading-game-platform
 
-# 2. Start local PostgreSQL
-docker run --name trading-game-db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=localpassword \
-  -e POSTGRES_DB=trading_game \
-  -p 5432:5432 \
-  -d postgres:16
+# 2. Start local PostgreSQL (Run this exact command in PowerShell)
+docker run -d --name trading-pg -e POSTGRES_PASSWORD=localpassword -e POSTGRES_DB=trading_game -p 5432:5432 postgres:16-alpine
+
+# Note: If you already created the container previously, just start it:
+# docker start trading-pg
 
 # 3. Install dependencies
 npm install
 
 # 4. Set up environment variables
-cp .env.example .env.local
-# Edit .env.local with your secrets
+# Copy .env.local from another team member, or create it:
+# New-Item .env.local -ItemType File
 
 # 5. Run database migrations
 npx prisma migrate dev
 
-# 6. Seed the database
+# 6. Seed the database with the test users
 npx prisma db seed
 
-# 7. Start the dev server
-npm run dev
+# 7. Start the server (Required for WebSockets to work)
+node server.js
+```
+
+### Running Tests
+
+```bash
+# Unit tests (matching engine, margin, P&L)
+npx jest
+
+# Type checking
+npx tsc --noEmit
 ```
 
 ### Environment Variables
@@ -101,16 +131,39 @@ npm run dev
 | Variable | Description |
 |----------|------------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `NEXTAUTH_SECRET` | Random 32-byte base64 string for session encryption |
+| `NEXTAUTH_SECRET` | Random 32-byte base64 string for JWT signing |
 | `NEXTAUTH_URL` | App URL (`http://localhost:3000` for dev) |
 | `RESET_TOKEN_SECRET` | Random 32-byte base64 string for password reset tokens |
+| `CRON_SECRET` | Bearer token for cron cleanup endpoints |
+
+## Core Systems
+
+### Matching Engine
+- **LIMIT orders**: Hit a specific quote by ID → instant atomic execution
+- **MARKET orders**: Sweep best-priced quotes with slippage protection (`limitPrice`)
+- **Double Margining**: Margin checked at submission AND inside the transaction
+- **Race protection**: `SELECT FOR UPDATE` row locks prevent concurrent fill conflicts
+
+### WebSocket (Real-Time)
+- JWT-authenticated via NextAuth session cookie
+- Room-based targeting: `user:<id>` + `contract:<id>`
+- Events: `TRADE_EXECUTED`, `QUOTE_UPDATED`, `CONTRACT_SETTLED`
+- 8-min keepalive for DigitalOcean compatibility
+
+### Security
+- NextAuth v5 JWT sessions with bcrypt (factor 12)
+- Rate limiting, CSRF protection, security headers
+- Admin blocked from all trading at API layer
+- Idempotency (UUIDv7) on all state-changing operations
 
 ## Documentation
 
-See [`workflow/`](./workflow/) for the full implementation plan and checkpoint tracking:
+See [`workflow/`](./workflow/) for full documentation:
 
-- [`implementation_plan.md`](./workflow/implementation_plan.md) — Complete technical plan
-- `cp-1` through `cp-8` — Individual checkpoint verification checklists
+- [`project-walkthrough.md`](./workflow/project-walkthrough.md) — Complete project walkthrough (start to finish)
+- [`phase-1.md`](./workflow/phase-1.md) — Phase 1 checkpoint tracker (all complete)
+- [`trading_platform_plan_v5.md`](./workflow/trading_platform_plan_v5.md) — Original technical specification
+- [`hyperliquid_research_report.md`](./workflow/hyperliquid_research_report.md) — HyperLiquid architecture research
 
 ## License
 
