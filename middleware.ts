@@ -4,9 +4,12 @@ import { NextResponse } from "next/server";
 
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PAGES = ["/login", "/register"];
+const PUBLIC_PAGES = ["/sso"];
 const PUBLIC_API_PREFIX = "/api/auth";
+const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
 
+// Next.js strips basePath from req.nextUrl.pathname before middleware runs,
+// so no manual normalization is needed here.
 export default auth(function middleware(req) {
   const { pathname } = req.nextUrl;
   const session = req.auth;
@@ -24,10 +27,10 @@ export default auth(function middleware(req) {
     return NextResponse.next();
   }
 
-  // Everything else requires authentication
+  // Everything else requires authentication — unauthenticated users go to Lab login
   if (!session) {
-    const loginUrl = new URL("/login", req.nextUrl);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    const loginUrl = new URL(LAB_LOGIN_URL);
+    loginUrl.searchParams.set("next", req.nextUrl.href);
     return NextResponse.redirect(loginUrl);
   }
 

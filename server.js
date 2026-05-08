@@ -36,6 +36,16 @@ async function maybeAttachRedis(io) {
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3000", 10);
+const basePath = process.env.TRADING_BASE_PATH || "";
+const socketPath = `${basePath}/socket.io`;
+const corsOrigin = (() => {
+  try {
+    const nextAuthUrl = process.env.NEXTAUTH_URL || `http://localhost:${port}`;
+    return new URL(nextAuthUrl).origin;
+  } catch {
+    return `http://localhost:${port}`;
+  }
+})();
 
 // NextAuth cookie name differs between dev and prod
 const SESSION_COOKIE_NAME = dev
@@ -55,12 +65,13 @@ app.prepare().then(async () => {
   // websocket-engineer: configure ping interval for keepalive,
   // maxHttpBufferSize for DDoS protection, CORS for same-origin
   const io = new Server(httpServer, {
+    path: socketPath,
     // 8-minute ping interval to prevent DigitalOcean's 10-min idle timeout
     pingInterval: 8 * 60 * 1000, // 480,000 ms
     pingTimeout: 30000, // 30s to respond before disconnect
     maxHttpBufferSize: 1e6, // 1MB max message size (DDoS protection)
     cors: {
-      origin: process.env.NEXTAUTH_URL || `http://localhost:${port}`,
+      origin: corsOrigin,
       methods: ["GET", "POST"],
       credentials: true,
     },

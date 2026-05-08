@@ -11,8 +11,11 @@
 interface LogEntry {
   timestamp: string;
   level: "INFO" | "WARN" | "ERROR";
+  service: string;
+  env: string;
   method: string;
   path: string;
+  requestId?: string;
   userId?: number | string;
   statusCode?: number;
   processingTimeMs?: number;
@@ -39,6 +42,8 @@ export function log(
   const logEntry: LogEntry = {
     timestamp: new Date().toISOString(),
     level: "INFO",
+    service: process.env.SERVICE_NAME || "trading-game-platform",
+    env: process.env.NODE_ENV || "development",
     ...entry,
   };
   console.log(JSON.stringify(logEntry));
@@ -56,6 +61,8 @@ export function logError(
   const logEntry: LogEntry = {
     timestamp: new Date().toISOString(),
     level: "ERROR",
+    service: process.env.SERVICE_NAME || "trading-game-platform",
+    env: process.env.NODE_ENV || "development",
     method,
     path,
     userId,
@@ -88,6 +95,7 @@ export function createRequestLogger(request: Request) {
       log({
         method: request.method,
         path: url.pathname,
+        requestId: request.headers.get("x-request-id") || undefined,
         userId,
         statusCode,
         processingTimeMs: Date.now() - start,
@@ -103,8 +111,11 @@ export function createRequestLogger(request: Request) {
       const logEntry: LogEntry = {
         timestamp: new Date().toISOString(),
         level: "ERROR",
+        service: process.env.SERVICE_NAME || "trading-game-platform",
+        env: process.env.NODE_ENV || "development",
         method: request.method,
         path: url.pathname,
+        requestId: request.headers.get("x-request-id") || undefined,
         userId,
         processingTimeMs: Date.now() - start,
         error: {

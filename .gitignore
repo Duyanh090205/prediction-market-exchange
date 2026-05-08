@@ -1,3 +1,6 @@
+# Cursor / Claude agent scratch files
+.claude/
+
 # Logs
 logs
 *.log

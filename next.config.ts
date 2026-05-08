@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
+const basePath = process.env.TRADING_BASE_PATH || "";
 
 // Production CSP — strict by default. `'unsafe-inline'` is removed from
 // script-src; if you need third-party scripts later, generate a per-request
@@ -31,6 +32,8 @@ const DEV_CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  basePath,
+  assetPrefix: basePath || undefined,
   async headers() {
     const securityHeaders = [
       { key: "X-Frame-Options", value: "DENY" },

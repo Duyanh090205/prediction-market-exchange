@@ -36,6 +36,7 @@ export function getSocket(): Socket {
   }
 
   socket = io({
+    path: `${process.env.NEXT_PUBLIC_TRADING_BASE_PATH || ""}/socket.io`,
     // D2 fix: withCredentials sends the session cookie automatically
     withCredentials: true,
     // websocket-engineer: automatic reconnection with exponential backoff
