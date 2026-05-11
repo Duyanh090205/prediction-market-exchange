@@ -103,8 +103,9 @@ docker run -d --name trading-pg -e POSTGRES_PASSWORD=localpassword -e POSTGRES_D
 npm install
 
 # 4. Set up environment variables
-# Copy .env.local from another team member, or create it:
-# New-Item .env.local -ItemType File
+# Copy .env.local from another team member, or create it from .env.example.
+# For local dev, set both TRADING_DATABASE_URL and TRADING_DATABASE_DIRECT_URL
+# to the same direct Postgres URL (no connection pool).
 
 # 5. Run database migrations
 npx prisma migrate dev
@@ -130,7 +131,8 @@ npx tsc --noEmit
 
 | Variable | Description |
 |----------|------------|
-| `TRADING_DATABASE_URL` | PostgreSQL connection string for trading service |
+| `TRADING_DATABASE_URL` | PostgreSQL URL for the app at runtime (prod: DigitalOcean **pool** + `pgbouncer=true`) |
+| `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma migrate`** / introspection (no pool; same DB as Overview connection details) |
 | `NEXTAUTH_SECRET` | Random 32-byte base64 string for JWT signing |
 | `NEXTAUTH_URL` | App URL (`http://localhost:3000` for dev) |
 | `TRADING_BASE_PATH` | Optional base path when mounted as sub-app (ex: `/trading`) |

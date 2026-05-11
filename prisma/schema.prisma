@@ -6,8 +6,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("TRADING_DATABASE_URL")
+  provider  = "postgresql"
+  // Pooled URL at runtime (e.g. DO connection pool + ?pgbouncer=true)
+  url       = env("TRADING_DATABASE_URL")
+  // Direct Postgres for migrations / introspection (bypasses PgBouncer)
+  directUrl = env("TRADING_DATABASE_DIRECT_URL")
 }
 
 // ─── Enums ──────────────────────────────────────────────────────────────────
