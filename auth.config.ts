@@ -1,6 +1,9 @@
 import type { NextAuthConfig } from "next-auth";
 
 export const authConfig = {
+  // Required behind DigitalOcean ingress / path-prefix routing (reverse proxy).
+  // Without this, Auth.js throws UntrustedHost for https://lab.iterlight.com/trading/...
+  trustHost: true,
   providers: [],
   pages: {
     signIn: "/login",

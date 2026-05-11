@@ -135,6 +135,7 @@ npx tsc --noEmit
 | `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma migrate`** / introspection (no pool; same DB as Overview connection details) |
 | `NEXTAUTH_SECRET` | Random 32-byte base64 string for JWT signing |
 | `NEXTAUTH_URL` | App URL (`http://localhost:3000` for dev) |
+| `AUTH_TRUST_HOST` | Set `true` behind a reverse proxy (DigitalOcean App Platform, nginx) — avoids `UntrustedHost` |
 | `TRADING_BASE_PATH` | Optional base path when mounted as sub-app (ex: `/trading`) |
 | `NEXT_PUBLIC_TRADING_BASE_PATH` | Public base path for Socket.IO client (usually same as `TRADING_BASE_PATH`) |
 | `LAB_SSO_SHARED_SECRET` | Shared secret used to verify Lab-issued SSO handoff token |
