@@ -56,6 +56,12 @@ const nextConfig: NextConfig = {
       });
     }
 
+    // Avoid breaking Auth.js session coordination / OAuth popup postMessage (see errors.authjs.dev COOP).
+    securityHeaders.push({
+      key: "Cross-Origin-Opener-Policy",
+      value: "unsafe-none",
+    });
+
     return [
       {
         source: "/(.*)",

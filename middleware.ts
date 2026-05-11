@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PAGES = ["/sso"];
+const PUBLIC_PAGES = ["/sso", "/auth-from-lab"];
 const PUBLIC_API_PREFIX = "/api/auth";
-const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
+const BASE_PATH = process.env.TRADING_BASE_PATH || "";
 
 // Next.js strips basePath from req.nextUrl.pathname before middleware runs,
 // so no manual normalization is needed here.
@@ -27,11 +27,15 @@ export default auth(function middleware(req) {
     return NextResponse.next();
   }
 
-  // Everything else requires authentication — unauthenticated users go to Lab login
+  // Unauthenticated → same-origin bridge uses Lab JWT in localStorage (no second login)
   if (!session) {
-    const loginUrl = new URL(LAB_LOGIN_URL);
-    loginUrl.searchParams.set("next", req.nextUrl.href);
-    return NextResponse.redirect(loginUrl);
+    const bridge = req.nextUrl.clone();
+    const prefix = BASE_PATH.replace(/\/$/, "");
+    bridge.pathname = `${prefix}/auth-from-lab`.replace(/\/{2,}/g, "/") || "/auth-from-lab";
+    bridge.search = "";
+    const dest = `${pathname}${req.nextUrl.search}`;
+    bridge.searchParams.set("next", dest || "/");
+    return NextResponse.redirect(bridge);
   }
 
   return NextResponse.next();
