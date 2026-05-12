@@ -30,7 +30,7 @@ function SsoPageInner() {
       }
 
       if (result?.url) {
-        window.location.href = result.url;
+        window.location.assign(result.url);
       }
     };
 

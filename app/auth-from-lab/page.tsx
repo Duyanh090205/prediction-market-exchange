@@ -22,7 +22,7 @@ function AuthFromLabInner() {
       if (!token) {
         const basePath = process.env.NEXT_PUBLIC_TRADING_BASE_PATH || "";
         const afterLab = `${window.location.origin}${basePath}/auth-from-lab?next=${encodeURIComponent(nextPath)}`;
-        window.location.href = `${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`;
+        window.location.assign(`${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`);
         return;
       }
 
@@ -42,7 +42,7 @@ function AuthFromLabInner() {
         if (res.status === 401 || res.status === 403) {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
-          window.location.href = `${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`;
+          window.location.assign(`${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`);
           return;
         }
         setError(body.message || body.error || "Could not start Lab SSO handoff.");
@@ -51,7 +51,7 @@ function AuthFromLabInner() {
 
       const ssoUrl = body.data?.ssoUrl ?? body.ssoUrl;
       if (typeof ssoUrl === "string" && ssoUrl.length > 0) {
-        window.location.href = ssoUrl;
+        window.location.assign(ssoUrl);
         return;
       }
 

@@ -33,7 +33,13 @@ export default auth(function middleware(req) {
     const prefix = BASE_PATH.replace(/\/$/, "");
     bridge.pathname = `${prefix}/auth-from-lab`.replace(/\/{2,}/g, "/") || "/auth-from-lab";
     bridge.search = "";
-    const dest = `${pathname}${req.nextUrl.search}`;
+    
+    // Ensure we don't end up with //trading or similar
+    let dest = `${pathname}${req.nextUrl.search}`;
+    if (BASE_PATH && !dest.startsWith(BASE_PATH)) {
+      dest = `${BASE_PATH}${dest}`;
+    }
+    
     bridge.searchParams.set("next", dest || "/");
     return NextResponse.redirect(bridge);
   }
