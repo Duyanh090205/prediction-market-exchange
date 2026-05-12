@@ -107,8 +107,8 @@ npm install
 # For local dev, set both TRADING_DATABASE_URL and TRADING_DATABASE_DIRECT_URL
 # to the same direct Postgres URL (no connection pool).
 
-# 5. Apply the schema to your local database (no migration files required)
-npx prisma db push
+# 5. Apply committed migrations to your local database
+npx prisma migrate deploy
 
 # 6. Seed the database with the test users
 npx prisma db seed
@@ -116,6 +116,8 @@ npx prisma db seed
 # 7. Start the server (Required for WebSockets to work)
 node server.js
 ```
+
+When you change `prisma/schema.prisma`, create a new migration with `npx prisma migrate dev --name <short_description>` against a local Postgres (Docker). **Review the generated SQL** — we only ship **additive** migrations (new tables/columns/indexes/enums); avoid `DROP TABLE`, `DROP COLUMN`, and destructive `ALTER` in new files. (One historical migration removed deprecated `TakeRequest`; do not use it as a template for new work.)
 
 ### Running Tests
 
@@ -129,17 +131,17 @@ npx tsc --noEmit
 
 ## Production / App Platform builds
 
-`npm run build` runs `scripts/db-deploy.mjs` first, which executes **`prisma db push`** when `TRADING_DATABASE_URL` or `TRADING_DATABASE_DIRECT_URL` is set. That creates or updates tables from `prisma/schema.prisma` on an empty database (no shadow DB; suitable for managed Postgres). It is skipped when those env vars are absent so local `npm run build` without Docker still works.
+`npm run build` runs `scripts/db-deploy.mjs` first, which executes **`prisma migrate deploy`** when `TRADING_DATABASE_URL` or `TRADING_DATABASE_DIRECT_URL` is set. That applies any **pending** SQL files under `prisma/migrations/` — it does **not** diff the schema and auto-drop objects the way `prisma db push` does. It is skipped when those env vars are absent so local `npm run build` without Docker still works.
 
-For schema changes you control, consider moving to versioned **`prisma migrate deploy`** in CI later; `db push` is the pragmatic default until migration history exists.
+**Policy:** new migrations should be **additive only** (create/extend). Do not commit migrations that drop tables or columns unless you have an explicit maintenance window and backups.
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|------------|
-| `SKIP_DB_DEPLOY` | Set to `1` to skip `prisma db push` during `npm run build` (e.g. CI without Postgres) |
+| `SKIP_DB_DEPLOY` | Set to `1` to skip `prisma migrate deploy` during `npm run build` (e.g. CI without Postgres) |
 | `TRADING_DATABASE_URL` | PostgreSQL URL for the app at runtime (prod: DigitalOcean **pool** + `pgbouncer=true`) |
-| `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma db push`** / migrate (no pool; same DB as Overview connection details) |
+| `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma migrate deploy`** (no pool; required for reliable migrations on DO) |
 | `NEXTAUTH_SECRET` | Random 32-byte base64 string for JWT signing |
 | `NEXTAUTH_URL` | App URL (`http://localhost:3000` for dev) |
 | `AUTH_TRUST_HOST` | Set `true` behind a reverse proxy (DigitalOcean App Platform, nginx) — avoids `UntrustedHost` |
