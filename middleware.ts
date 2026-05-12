@@ -33,12 +33,14 @@ export async function middleware(req: NextRequest) {
 
   if (token && LAB_JWT_SECRET) {
     try {
-      await jwtVerify(token, new TextEncoder().encode(LAB_JWT_SECRET));
+      await jwtVerify(token, new TextEncoder().encode(LAB_JWT_SECRET), {
+        clockTolerance: 60, // 1 minute tolerance for clock skew
+      });
       return NextResponse.next();
-    } catch {
+    } catch (err: any) {
       // Expired or tampered — clear cookie and fall through to redirect
       const res = NextResponse.redirect(
-        new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(req.nextUrl.href)}`)
+        new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(req.nextUrl.href)}&reason=jwt_verify_failed&err=${encodeURIComponent(err.message || 'unknown')}`)
       );
       res.cookies.set("lab_session", "", { maxAge: 0, path: "/" });
       return res;

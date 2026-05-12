@@ -37,7 +37,7 @@ export default function ConnectPage() {
       if (!token) {
         // Not logged in to Lab at all — send to Lab login
         window.location.assign(
-          `${LAB_LOGIN_URL}?redirect=${encodeURIComponent(next)}`
+          `${LAB_LOGIN_URL}?redirect=${encodeURIComponent(next)}&reason=no_local_token`
         );
         return;
       }
@@ -57,7 +57,7 @@ export default function ConnectPage() {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
           window.location.assign(
-            `${LAB_LOGIN_URL}?redirect=${encodeURIComponent(next)}`
+            `${LAB_LOGIN_URL}?redirect=${encodeURIComponent(next)}&reason=session_cookie_401`
           );
         } else {
           setStatus("error");

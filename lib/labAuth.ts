@@ -46,7 +46,8 @@ export async function getLabUser(): Promise<LabUser | null> {
   try {
     const { payload } = await jwtVerify(
       token,
-      new TextEncoder().encode(LAB_JWT_SECRET)
+      new TextEncoder().encode(LAB_JWT_SECRET),
+      { clockTolerance: 60 }
     );
     claims = payload as unknown as LabJwtPayload;
   } catch {
