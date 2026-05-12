@@ -7,7 +7,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-const LAB_LOGIN = process.env.NEXT_PUBLIC_LAB_LOGIN_URL || "https://lab.iterlight.com/login";
+const BASE_PATH = process.env.NEXT_PUBLIC_TRADING_BASE_PATH || "/trading";
 
 function AuthFromLabInner() {
   const searchParams = useSearchParams();
@@ -20,9 +20,9 @@ function AuthFromLabInner() {
         typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
 
       if (!token) {
-        const basePath = process.env.NEXT_PUBLIC_TRADING_BASE_PATH || "";
-        const afterLab = `${window.location.origin}${basePath}/auth-from-lab?next=${encodeURIComponent(nextPath)}`;
-        window.location.assign(`${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`);
+        // No Lab session — fall back to the trading app's own Google login
+        const tradingLogin = `${window.location.origin}${BASE_PATH}/login?callbackUrl=${encodeURIComponent(nextPath)}`;
+        window.location.assign(tradingLogin);
         return;
       }
 
@@ -37,12 +37,12 @@ function AuthFromLabInner() {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const basePath = process.env.NEXT_PUBLIC_TRADING_BASE_PATH || "";
-        const afterLab = `${window.location.origin}${basePath}/auth-from-lab?next=${encodeURIComponent(nextPath)}`;
         if (res.status === 401 || res.status === 403) {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
-          window.location.assign(`${LAB_LOGIN}?redirect=${encodeURIComponent(afterLab)}`);
+          // Lab session expired — fall back to trading app's own Google login
+          const tradingLogin = `${window.location.origin}${BASE_PATH}/login?callbackUrl=${encodeURIComponent(nextPath)}`;
+          window.location.assign(tradingLogin);
           return;
         }
         setError(body.message || body.error || "Could not start Lab SSO handoff.");

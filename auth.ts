@@ -19,6 +19,35 @@ type LabSsoClaims = {
   platformsEnabled?: string[];
 };
 
+async function resolveGoogleUser(idToken: string) {
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!clientId) throw new Error("Google client ID not configured");
+
+  const resp = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+  );
+  if (!resp.ok) return null;
+
+  const payload = await resp.json();
+
+  // Reject tokens issued for a different client
+  if (payload.aud !== clientId) return null;
+  if (!payload.email || !payload.email_verified) return null;
+
+  const email = payload.email as string;
+  const sub = payload.sub as string;
+  const username = `${email.split("@")[0].slice(0, 48)}-g${sub.slice(-6)}`.slice(0, 64);
+
+  const randomPassword = randomBytes(32).toString("hex");
+  const hashedPassword = await bcrypt.hash(randomPassword, 12);
+
+  return prisma.user.upsert({
+    where: { email },
+    create: { email, username, hashedPassword, status: "ACTIVE", role: "USER" },
+    update: { status: "ACTIVE" },
+  });
+}
+
 async function resolveSsoUser(ssoToken: string) {
   const sharedSecret = process.env.LAB_SSO_SHARED_SECRET;
   if (!sharedSecret) {
@@ -74,8 +103,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
         ssoToken: { label: "SSO Token", type: "text" },
+        googleIdToken: { label: "Google ID Token", type: "text" },
       },
       async authorize(credentials, request) {
+        // Google Sign-In via GSI (id token verified against tokeninfo endpoint)
+        const googleIdToken = credentials?.googleIdToken as string | undefined;
+        if (googleIdToken) {
+          const user = await resolveGoogleUser(googleIdToken);
+          if (!user) return null;
+          return {
+            id: String(user.id),
+            email: user.email,
+            name: user.username,
+            role: user.role,
+            username: user.username,
+          };
+        }
+
+        // Lab SSO handoff (signed JWT from lab backend)
         const ssoToken = credentials?.ssoToken as string | undefined;
         if (ssoToken) {
           const user = await resolveSsoUser(ssoToken);

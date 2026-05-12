@@ -1,247 +1,167 @@
 "use client";
 
+import { Suspense, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import Link from "next/link";
 
-function LoginForm() {
+declare global {
+  interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    google?: any;
+    handleGoogleCredential?: (response: { credential: string }) => void;
+  }
+}
+
+function LoginPageInner() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/";
-  const authError = searchParams.get("error");
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+  useEffect(() => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setError("Google Sign-In is not configured.");
       return;
     }
 
-    setLoading(true);
-    try {
+    window.handleGoogleCredential = async ({ credential }: { credential: string }) => {
+      setLoading(true);
+      setError(null);
       const result = await signIn("credentials", {
-        email,
-        password,
+        googleIdToken: credential,
         callbackUrl,
         redirect: false,
       });
-
       if (result?.error) {
-        setError("Invalid email or password.");
-      } else if (result?.url) {
-        window.location.href = result.url;
+        setError("Sign-in failed. Please try again.");
+        setLoading(false);
+        return;
       }
-    } catch {
-      setError("An unexpected error occurred.");
-    } finally {
-      setLoading(false);
+      if (result?.url) {
+        window.location.assign(result.url);
+      }
+    };
+
+    const initGSI = () => {
+      if (!window.google?.accounts?.id) return;
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: window.handleGoogleCredential,
+        auto_select: true,
+      });
+      if (buttonRef.current) {
+        window.google.accounts.id.renderButton(buttonRef.current, {
+          theme: "outline",
+          size: "large",
+          width: buttonRef.current.offsetWidth || 320,
+          text: "signin_with",
+          shape: "pill",
+        });
+      }
+      window.google.accounts.id.prompt();
+    };
+
+    if (window.google?.accounts?.id) {
+      initGSI();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = initGSI;
+      document.head.appendChild(script);
     }
-  };
+
+    return () => {
+      window.handleGoogleCredential = undefined;
+    };
+  }, [callbackUrl]);
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "2rem",
+        display: "grid",
+        placeItems: "center",
+        background: "linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%)",
+        fontFamily: "system-ui, sans-serif",
       }}
     >
       <div
         style={{
-          width: "100%",
-          maxWidth: "400px",
+          textAlign: "center",
           padding: "2.5rem",
-          background: "#12121a",
-          borderRadius: "1rem",
-          border: "1px solid #2a2a3e",
+          maxWidth: "24rem",
+          width: "100%",
+          background: "rgba(255,255,255,0.04)",
+          borderRadius: "1.5rem",
+          border: "1px solid rgba(255,255,255,0.08)",
         }}
       >
+        <div
+          style={{
+            width: "3rem",
+            height: "3rem",
+            borderRadius: "0.75rem",
+            background: "rgba(99,102,241,0.2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 1.25rem",
+            fontSize: "1.5rem",
+          }}
+        >
+          📈
+        </div>
+
         <h1
           style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            marginBottom: "0.5rem",
-            textAlign: "center",
-            background: "linear-gradient(135deg, #6366f1, #818cf8)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
+            color: "#e4e4ed",
+            fontSize: "1.375rem",
+            fontWeight: 600,
+            margin: "0 0 0.375rem",
           }}
         >
-          Sign In
+          Trading Platform
         </h1>
-        <p
-          style={{
-            textAlign: "center",
-            color: "#8888a0",
-            marginBottom: "2rem",
-            fontSize: "0.875rem",
-          }}
-        >
-          Trading Game Platform
+        <p style={{ color: "#8888a0", fontSize: "0.9rem", margin: "0 0 2rem" }}>
+          Sign in with your IterLight account to continue.
         </p>
 
-        {(error || authError) && (
-          <div
-            style={{
-              padding: "0.75rem 1rem",
-              background: "rgba(239, 68, 68, 0.1)",
-              border: "1px solid rgba(239, 68, 68, 0.3)",
-              borderRadius: "0.5rem",
-              color: "#ef4444",
-              fontSize: "0.875rem",
-              marginBottom: "1.5rem",
-            }}
-          >
-            {error || "Authentication failed. Please try again."}
-          </div>
+        {loading ? (
+          <p style={{ color: "#8888a0", fontSize: "0.875rem" }}>Signing in…</p>
+        ) : (
+          <div ref={buttonRef} style={{ display: "flex", justifyContent: "center" }} />
         )}
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <label
-              htmlFor="email"
-              style={{
-                display: "block",
-                fontSize: "0.875rem",
-                color: "#8888a0",
-                marginBottom: "0.5rem",
-              }}
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "0.75rem 1rem",
-                background: "#0a0a0f",
-                border: "1px solid #2a2a3e",
-                borderRadius: "0.5rem",
-                color: "#e4e4ed",
-                fontSize: "1rem",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: "1.75rem" }}>
-            <label
-              htmlFor="password"
-              style={{
-                display: "block",
-                fontSize: "0.875rem",
-                color: "#8888a0",
-                marginBottom: "0.5rem",
-              }}
-            >
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                style={{
-                  width: "100%",
-                  padding: "0.75rem 2.5rem 0.75rem 1rem",
-                  background: "#0a0a0f",
-                  border: "1px solid #2a2a3e",
-                  borderRadius: "0.5rem",
-                  color: "#e4e4ed",
-                  fontSize: "1rem",
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: "absolute",
-                  right: "0.75rem",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  background: "transparent",
-                  border: "none",
-                  color: "#8888a0",
-                  cursor: "pointer",
-                  padding: "0.25rem",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                title={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                  </svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
+        {error && (
+          <p
             style={{
-              width: "100%",
-              padding: "0.75rem",
-              background: loading ? "#4f46e5" : "#6366f1",
-              color: "#fff",
-              border: "none",
+              color: "#f87171",
+              fontSize: "0.8125rem",
+              marginTop: "1rem",
+              padding: "0.625rem 1rem",
+              background: "rgba(248,113,113,0.1)",
               borderRadius: "0.5rem",
-              fontSize: "1rem",
-              fontWeight: 600,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
-              transition: "all 0.2s",
             }}
           >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
+            {error}
+          </p>
+        )}
 
         <p
           style={{
-            textAlign: "center",
-            marginTop: "1.5rem",
-            fontSize: "0.875rem",
-            color: "#8888a0",
+            marginTop: "1.75rem",
+            color: "#555570",
+            fontSize: "0.75rem",
+            lineHeight: 1.5,
           }}
         >
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/register"
-            style={{ color: "#818cf8", textDecoration: "none" }}
-          >
-            Create one
-          </Link>
+          Access is limited to IterLight Lab members.
+          <br />
+          Use the same Google account as your Lab login.
         </p>
       </div>
     </main>
@@ -252,19 +172,12 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main
-          style={{
-            minHeight: "100vh",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <p style={{ color: "#8888a0" }}>Loading...</p>
+        <main style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
+          <p style={{ color: "#8888a0" }}>Loading…</p>
         </main>
       }
     >
-      <LoginForm />
+      <LoginPageInner />
     </Suspense>
   );
 }
