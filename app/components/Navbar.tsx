@@ -27,12 +27,12 @@ export default async function Navbar() {
   const badge = ROLE_BADGE[role];
   const userId = Number(user.id);
 
-  const [user, availableMargin] = await Promise.all([
+  const [dbUser, availableMargin] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { balance: true } }),
     calculateAvailableMargin(userId),
   ]);
 
-  if (!user) return null;
+  if (!dbUser) return null;
 
   return (
     <nav
@@ -109,7 +109,7 @@ export default async function Navbar() {
             {username}
           </span>
           <div style={{ fontSize: "0.7rem", color: "#8888a0", display: "flex", gap: "0.4rem" }}>
-            <span>Bal: <strong style={{ color: "#e4e4ed", fontWeight: 500 }}>{user.balance}</strong></span>
+            <span>Bal: <strong style={{ color: "#e4e4ed", fontWeight: 500 }}>{dbUser.balance}</strong></span>
             <span>|</span>
             <span>Margin: <strong style={{ color: availableMargin >= 0 ? "#10b981" : "#ef4444", fontWeight: 500 }}>{availableMargin}</strong></span>
           </div>

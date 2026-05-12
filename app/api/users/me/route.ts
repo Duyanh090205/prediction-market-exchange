@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     const userId = Number(user.id);
 
-    const [user, openTradeCount, availableMargin] = await Promise.all([
+    const [dbUser, openTradeCount, availableMargin] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
         select: { id: true, username: true, balance: true, role: true },
@@ -26,18 +26,18 @@ export async function GET(request: NextRequest) {
       calculateAvailableMargin(userId),
     ]);
 
-    if (!user) {
+    if (!dbUser) {
       reqLog.finish(404);
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const marginInUse = user.balance - availableMargin;
+    const marginInUse = dbUser.balance - availableMargin;
 
     reqLog.finish(200, user.id);
     return NextResponse.json({
-      id: user.id,
-      username: user.username,
-      balance: user.balance,
+      id: dbUser.id,
+      username: dbUser.username,
+      balance: dbUser.balance,
       availableMargin,
       marginInUse,
       openTradeCount,

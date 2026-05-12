@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     const adminId = Number(user.id);
 
-    const user = await prisma.$transaction(async (tx) => {
+    const dbUser = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
           username: username.trim(),
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     });
 
     reqLog.finish(201, user.id, { outcome: `created-user-${user.id}` });
-    return NextResponse.json({ user, tempPassword }, { status: 201 });
+    return NextResponse.json({ user: dbUser, tempPassword }, { status: 201 });
   } catch (error) {
     reqLog.error(error);
     if ((error as { code?: string }).code === "P2002") {
