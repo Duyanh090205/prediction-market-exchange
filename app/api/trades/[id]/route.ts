@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -21,14 +21,14 @@ export async function DELETE(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only admins can delete trades" },
         { status: 403 }
@@ -38,7 +38,7 @@ export async function DELETE(
     const { id } = await params;
     const tradeId = Number(id);
     if (isNaN(tradeId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid trade ID" }, { status: 400 });
     }
 
@@ -48,19 +48,19 @@ export async function DELETE(
     });
 
     if (!trade) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Trade not found" }, { status: 404 });
     }
 
     if (trade.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Only OPEN trades can be deleted" },
         { status: 409 }
       );
     }
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
     const ip = extractClientIp(request);
 
     await prisma.$transaction(async (tx) => {
@@ -98,7 +98,7 @@ export async function DELETE(
       );
     });
 
-    reqLog.finish(200, session.user.id, { outcome: `trade-deleted-${tradeId}` });
+    reqLog.finish(200, user.id, { outcome: `trade-deleted-${tradeId}` });
     return NextResponse.json({ message: "Trade deleted" });
   } catch (error) {
     reqLog.error(error);

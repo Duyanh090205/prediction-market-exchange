@@ -1,13 +1,13 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 
 export default async function AdminDashboard() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
-  if (session.user.role !== "ADMIN") redirect("/");
+  const user = await getLabUser();
+  if (!user) redirect("/");
+  if (user.role !== "ADMIN") redirect("/");
 
   const [userCount, pendingUserCount, contractCount, openTradeCount, recentAudits] = await Promise.all([
     prisma.user.count(),

@@ -1,11 +1,14 @@
 "use client";
 
-import { signOut } from "next-auth/react";
-
 export default function SignOutButton() {
   return (
     <button
-      onClick={() => signOut({ callbackUrl: "/login" })}
+      onClick={() => {
+        // Lab is the auth source — redirect there to sign out globally
+        window.location.assign(
+          `${process.env.NEXT_PUBLIC_LAB_LOGIN_URL || "https://lab.iterlight.com/login"}`
+        );
+      }}
       style={{
         padding: "0.375rem 0.875rem",
         background: "transparent",

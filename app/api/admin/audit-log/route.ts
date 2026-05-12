@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 
@@ -10,13 +10,13 @@ export async function GET(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ entries });
   } catch (error) {
     reqLog.error(error);

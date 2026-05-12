@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import Link from "next/link";
 import SignOutButton from "./SignOutButton";
 import NotificationPanel from "./NotificationPanel";
@@ -20,12 +20,12 @@ const ROLE_BADGE: Record<string, { label: string; color: string; bg: string }> =
 };
 
 export default async function Navbar() {
-  const session = await auth();
-  if (!session?.user) return null;
+  const user = await getLabUser();
+  if (!user) return null;
 
-  const { username, role } = session.user;
+  const { username, role } = user;
   const badge = ROLE_BADGE[role];
-  const userId = Number(session.user.id);
+  const userId = Number(user.id);
 
   const [user, availableMargin] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { balance: true } }),

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -15,15 +15,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const role = session.user.role;
+    const role = user.role;
     if (role !== "LIQUIDITY_PROVIDER" && role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only Market Maker or Admin can post hints" },
         { status: 403 }
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const { contractId, content, linkUrl, linkLabel } = body;
 
     if (!contractId || !content || typeof content !== "string" || content.trim().length === 0) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "contractId and content are required" },
         { status: 400 }
@@ -48,11 +48,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!contract) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Contract not found" }, { status: 404 });
     }
     if (contract.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Cannot add hints to a settled contract" },
         { status: 409 }
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const hint = await prisma.hint.create({
       data: {
         contractId: Number(contractId),
-        authorId: Number(session.user.id),
+        authorId: Number(user.id),
         content: content.trim(),
         linkUrl: linkUrl ? String(linkUrl).trim() : null,
         linkLabel: linkLabel ? String(linkLabel).trim() : null,
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    reqLog.finish(201, session.user.id, { contractId: hint.contractId });
+    reqLog.finish(201, user.id, { contractId: hint.contractId });
     return NextResponse.json({ hint }, { status: 201 });
   } catch (error) {
     reqLog.error(error);

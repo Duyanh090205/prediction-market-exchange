@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -29,24 +29,24 @@ export async function PATCH(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
     const { id } = await params;
     const userId = Number(id);
     if (isNaN(userId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid user id" }, { status: 400 });
     }
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
     const ip = extractClientIp(request);
     const body = await request.json();
     const { action } = body;
@@ -56,13 +56,13 @@ export async function PATCH(
       select: { id: true, username: true, email: true, status: true, role: true, balance: true },
     });
     if (!target) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     if (action === "approve") {
       if (target.status !== "PENDING") {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json(
           { error: `User is already ${target.status}` },
           { status: 409 }
@@ -71,7 +71,7 @@ export async function PATCH(
 
       const startingBalance = body.balance != null ? Number(body.balance) : DEFAULT_STARTING_BALANCE;
       if (!Number.isInteger(startingBalance) || startingBalance < 0) {
-        reqLog.finish(400, session.user.id);
+        reqLog.finish(400, user.id);
         return NextResponse.json(
           { error: "balance must be a non-negative integer" },
           { status: 400 }
@@ -118,13 +118,13 @@ export async function PATCH(
         );
       });
 
-      reqLog.finish(200, session.user.id, { outcome: `approved-${userId}` });
+      reqLog.finish(200, user.id, { outcome: `approved-${userId}` });
       return NextResponse.json({ success: true });
     }
 
     if (action === "deny") {
       if (target.status !== "PENDING") {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json(
           { error: "Only PENDING users can be denied — use suspend for active users" },
           { status: 409 }
@@ -147,17 +147,17 @@ export async function PATCH(
         );
       });
 
-      reqLog.finish(200, session.user.id, { outcome: `denied-${userId}` });
+      reqLog.finish(200, user.id, { outcome: `denied-${userId}` });
       return NextResponse.json({ success: true });
     }
 
     if (action === "suspend") {
       if (target.status !== "ACTIVE") {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json({ error: "User is not ACTIVE" }, { status: 409 });
       }
       if (target.role === "ADMIN") {
-        reqLog.finish(403, session.user.id);
+        reqLog.finish(403, user.id);
         return NextResponse.json({ error: "Cannot suspend an admin" }, { status: 403 });
       }
       await prisma.$transaction(async (tx) => {
@@ -174,13 +174,13 @@ export async function PATCH(
           tx
         );
       });
-      reqLog.finish(200, session.user.id);
+      reqLog.finish(200, user.id);
       return NextResponse.json({ success: true });
     }
 
     if (action === "reactivate") {
       if (target.status !== "SUSPENDED") {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json({ error: "User is not SUSPENDED" }, { status: 409 });
       }
       await prisma.$transaction(async (tx) => {
@@ -197,7 +197,7 @@ export async function PATCH(
           tx
         );
       });
-      reqLog.finish(200, session.user.id);
+      reqLog.finish(200, user.id);
       return NextResponse.json({ success: true });
     }
 
@@ -205,11 +205,11 @@ export async function PATCH(
       const delta = Number(body.delta);
       const reason = String(body.reason ?? "").trim();
       if (!Number.isInteger(delta) || delta === 0) {
-        reqLog.finish(400, session.user.id);
+        reqLog.finish(400, user.id);
         return NextResponse.json({ error: "delta must be a non-zero integer" }, { status: 400 });
       }
       if (reason.length < 5) {
-        reqLog.finish(400, session.user.id);
+        reqLog.finish(400, user.id);
         return NextResponse.json(
           { error: "reason is required (min 5 chars) — explains the manual adjustment" },
           { status: 400 }
@@ -252,11 +252,11 @@ export async function PATCH(
         );
       });
 
-      reqLog.finish(200, session.user.id);
+      reqLog.finish(200, user.id);
       return NextResponse.json({ success: true });
     }
 
-    reqLog.finish(400, session.user.id);
+    reqLog.finish(400, user.id);
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     reqLog.error(error);

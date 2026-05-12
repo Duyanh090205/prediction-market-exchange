@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -15,20 +15,20 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = Number(session.user.id);
+    const userId = Number(user.id);
 
     await prisma.notification.updateMany({
       where: { userId, isRead: false },
       data: { isRead: true },
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     reqLog.error(error);

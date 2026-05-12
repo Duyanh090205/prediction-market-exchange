@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -9,14 +9,14 @@ export async function GET(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const url = new URL(request.url);
-    const showAll = url.searchParams.get("all") === "1" && session.user.role === "ADMIN";
+    const showAll = url.searchParams.get("all") === "1" && user.role === "ADMIN";
 
     const contracts = await prisma.contract.findMany({
       where: showAll ? {} : { status: "OPEN" },
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ contracts });
   } catch (error) {
     reqLog.error(error);
@@ -57,14 +57,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "ADMIN" && session.user.role !== "LIQUIDITY_PROVIDER") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN" && user.role !== "LIQUIDITY_PROVIDER") {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only Admin or Liquidity Provider can create contracts" },
         { status: 403 }
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     const { title, description, minPrice, maxPrice } = body;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Title is required" },
         { status: 400 }
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       typeof description !== "string" ||
       description.trim().length === 0
     ) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Description is required" },
         { status: 400 }
@@ -96,14 +96,14 @@ export async function POST(request: NextRequest) {
     const minP = minPrice != null ? Number(minPrice) : 0;
     const maxP = maxPrice != null ? Number(maxPrice) : 100;
     if (!Number.isInteger(minP) || !Number.isInteger(maxP)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "minPrice and maxPrice must be integers" },
         { status: 400 }
       );
     }
     if (minP >= maxP) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "minPrice must be strictly less than maxPrice" },
         { status: 400 }
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    reqLog.finish(201, session.user.id, { contractId: contract.id });
+    reqLog.finish(201, user.id, { contractId: contract.id });
     return NextResponse.json({ contract }, { status: 201 });
   } catch (error) {
     reqLog.error(error);

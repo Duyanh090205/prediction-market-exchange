@@ -1,43 +1,55 @@
-import NextAuth from "next-auth";
-import { authConfig } from "./auth.config";
+import { jwtVerify } from "jose";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-const { auth } = NextAuth(authConfig);
+const LAB_JWT_SECRET = process.env.LAB_JWT_SECRET || "";
+const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
+const BASE_PATH = process.env.TRADING_BASE_PATH || "/trading";
 
-const PUBLIC_PAGES = ["/sso", "/auth-from-lab", "/login"];
-const PUBLIC_API_PREFIX = "/api/auth";
-const BASE_PATH = process.env.TRADING_BASE_PATH || "";
+// Routes that don't need an authenticated Lab session
+const PUBLIC_PREFIXES = [
+  "/api/auth",   // NextAuth internals (kept for signOut helper)
+  "/api/health",
+];
 
-// Next.js strips basePath from req.nextUrl.pathname before middleware runs,
-// so pathname here is always relative to the basePath (e.g. "/" not "/trading/").
-export default auth(function middleware(req) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const session = req.auth;
 
-  // Always allow NextAuth's own API routes and health check
-  if (pathname.startsWith(PUBLIC_API_PREFIX) || pathname === "/api/health") {
+  // Always allow static assets
+  if (
+    pathname.startsWith("/_next/") ||
+    pathname.startsWith("/favicon")
+  ) {
     return NextResponse.next();
   }
 
-  // Public pages: allow through unauthenticated
-  if (PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+  // Allow public API prefixes
+  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  // Unauthenticated → SSO bridge (reads Lab JWT from localStorage, exchanges for trading session).
-  // Falls back to /login (Google Sign-In) if no Lab token is found.
-  if (!session) {
-    const bridge = req.nextUrl.clone();
-    const prefix = BASE_PATH.replace(/\/$/, "");
-    bridge.pathname = `${prefix}/auth-from-lab`;
-    bridge.search = "";
-    const dest = `${pathname}${req.nextUrl.search}`;
-    bridge.searchParams.set("next", dest || "/");
-    return NextResponse.redirect(bridge);
+  const token = req.cookies.get("lab_session")?.value;
+
+  if (token && LAB_JWT_SECRET) {
+    try {
+      await jwtVerify(token, new TextEncoder().encode(LAB_JWT_SECRET));
+      return NextResponse.next();
+    } catch {
+      // Expired or tampered — clear cookie and fall through to redirect
+      const res = NextResponse.redirect(
+        new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(req.nextUrl.href)}`)
+      );
+      res.cookies.set("lab_session", "", { maxAge: 0, path: "/" });
+      return res;
+    }
   }
 
-  return NextResponse.next();
-});
+  // No cookie — send to Lab login, which will redirect back here after sign-in
+  const dest = req.nextUrl.href;
+  return NextResponse.redirect(
+    new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(dest)}`)
+  );
+}
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],

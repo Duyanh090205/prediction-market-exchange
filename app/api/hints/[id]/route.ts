@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -18,8 +18,8 @@ export async function PATCH(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -27,19 +27,19 @@ export async function PATCH(
     const { id } = await params;
     const hintId = Number(id);
     if (isNaN(hintId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid hint ID" }, { status: 400 });
     }
 
     const hint = await prisma.hint.findUnique({ where: { id: hintId } });
 
     if (!hint) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Hint not found" }, { status: 404 });
     }
 
-    if (hint.authorId !== Number(session.user.id)) {
-      reqLog.finish(403, session.user.id);
+    if (hint.authorId !== Number(user.id)) {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only the author can edit this hint" },
         { status: 403 }
@@ -50,7 +50,7 @@ export async function PATCH(
     const { content, linkUrl, linkLabel } = body;
 
     if (content !== undefined && (typeof content !== "string" || content.trim().length === 0)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Content cannot be empty" },
         { status: 400 }
@@ -70,7 +70,7 @@ export async function PATCH(
       },
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ hint: updated });
   } catch (error) {
     reqLog.error(error);
@@ -95,8 +95,8 @@ export async function DELETE(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -104,21 +104,21 @@ export async function DELETE(
     const { id } = await params;
     const hintId = Number(id);
     if (isNaN(hintId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid hint ID" }, { status: 400 });
     }
 
     const hint = await prisma.hint.findUnique({ where: { id: hintId } });
 
     if (!hint) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Hint not found" }, { status: 404 });
     }
 
-    const isAuthor = hint.authorId === Number(session.user.id);
-    const isAdmin = session.user.role === "ADMIN";
+    const isAuthor = hint.authorId === Number(user.id);
+    const isAdmin = user.role === "ADMIN";
     if (!isAuthor && !isAdmin) {
-      reqLog.finish(403, session.user.id);
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only the author or an admin can delete this hint" },
         { status: 403 }
@@ -127,7 +127,7 @@ export async function DELETE(
 
     await prisma.hint.delete({ where: { id: hintId } });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ message: "Hint deleted" });
   } catch (error) {
     reqLog.error(error);

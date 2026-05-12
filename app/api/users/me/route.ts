@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { calculateAvailableMargin } from "@/lib/margin";
@@ -9,13 +9,13 @@ export async function GET(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = Number(session.user.id);
+    const userId = Number(user.id);
 
     const [user, openTradeCount, availableMargin] = await Promise.all([
       prisma.user.findUnique({
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     const marginInUse = user.balance - availableMargin;
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({
       id: user.id,
       username: user.username,

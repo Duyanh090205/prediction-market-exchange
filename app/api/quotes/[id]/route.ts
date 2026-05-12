@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -21,8 +21,8 @@ export async function PATCH(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -30,7 +30,7 @@ export async function PATCH(
     const { id } = await params;
     const quoteId = Number(id);
     if (isNaN(quoteId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid quote ID" }, { status: 400 });
     }
 
@@ -44,12 +44,12 @@ export async function PATCH(
     });
 
     if (!quote) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Quote not found" }, { status: 404 });
     }
 
-    if (quote.makerId !== Number(session.user.id)) {
-      reqLog.finish(403, session.user.id);
+    if (quote.makerId !== Number(user.id)) {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only the maker can edit this quote" },
         { status: 403 }
@@ -57,7 +57,7 @@ export async function PATCH(
     }
 
     if (quote.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Cannot edit a quote that is not OPEN" },
         { status: 409 }
@@ -65,7 +65,7 @@ export async function PATCH(
     }
 
     if (quote.contract.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Contract is not open" },
         { status: 409 }
@@ -74,7 +74,7 @@ export async function PATCH(
 
     const body = await request.json();
     const { bid, ask, size } = body;
-    const isLP = session.user.role === "LIQUIDITY_PROVIDER";
+    const isLP = user.role === "LIQUIDITY_PROVIDER";
 
     const bidProvided = Object.prototype.hasOwnProperty.call(body, "bid");
     const askProvided = Object.prototype.hasOwnProperty.call(body, "ask");
@@ -84,20 +84,20 @@ export async function PATCH(
     const newSize = size != null ? Number(size) : quote.size;
 
     if (newBid != null && !Number.isInteger(newBid)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "bid must be an integer" }, { status: 400 });
     }
     if (newAsk != null && !Number.isInteger(newAsk)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
     }
     if (!Number.isInteger(newSize)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
     }
 
     if (isLP && (newBid == null || newAsk == null)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Market makers must keep both bid and ask" },
         { status: 400 }
@@ -105,7 +105,7 @@ export async function PATCH(
     }
 
     if (newBid == null && newAsk == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Quote must have at least a bid or an ask" },
         { status: 400 }
@@ -113,7 +113,7 @@ export async function PATCH(
     }
 
     if (newBid != null && newAsk != null && newBid >= newAsk) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "bid must be strictly less than ask" },
         { status: 400 }
@@ -121,7 +121,7 @@ export async function PATCH(
     }
 
     if (newSize < 1) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "size must be at least 1" },
         { status: 400 }
@@ -130,14 +130,14 @@ export async function PATCH(
 
     const { minPrice, maxPrice } = quote.contract;
     if (newBid != null && (newBid < minPrice || newBid > maxPrice)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: `bid must be in [${minPrice}, ${maxPrice}]` },
         { status: 400 }
       );
     }
     if (newAsk != null && (newAsk < minPrice || newAsk > maxPrice)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: `ask must be in [${minPrice}, ${maxPrice}]` },
         { status: 400 }
@@ -151,7 +151,7 @@ export async function PATCH(
     if (sizeDelta > 0) {
       const available = await calculateAvailableMargin(quote.makerId);
       if (available < sizeDelta) {
-        reqLog.finish(422, session.user.id);
+        reqLog.finish(422, user.id);
         return NextResponse.json(
           {
             error: `Insufficient margin to grow quote: available ${available}, additional ${sizeDelta} required`,
@@ -169,7 +169,7 @@ export async function PATCH(
       },
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ quote: updated });
   } catch (error) {
     reqLog.error(error);
@@ -194,8 +194,8 @@ export async function DELETE(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -203,7 +203,7 @@ export async function DELETE(
     const { id } = await params;
     const quoteId = Number(id);
     if (isNaN(quoteId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid quote ID" }, { status: 400 });
     }
 
@@ -213,15 +213,15 @@ export async function DELETE(
     });
 
     if (!quote) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Quote not found" }, { status: 404 });
     }
 
-    const actorId = Number(session.user.id);
+    const actorId = Number(user.id);
     const isMaker = quote.makerId === actorId;
-    const isAdmin = session.user.role === "ADMIN";
+    const isAdmin = user.role === "ADMIN";
     if (!isMaker && !isAdmin) {
-      reqLog.finish(403, session.user.id);
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only the maker or an admin can cancel this quote" },
         { status: 403 }
@@ -229,7 +229,7 @@ export async function DELETE(
     }
 
     if (quote.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Cannot cancel a quote that is not OPEN" },
         { status: 409 }
@@ -264,7 +264,7 @@ export async function DELETE(
       }
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ message: "Quote cancelled" });
   } catch (error) {
     reqLog.error(error);

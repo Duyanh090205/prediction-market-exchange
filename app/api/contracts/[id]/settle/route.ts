@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -33,21 +33,21 @@ export async function POST(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
     const { id } = await params;
     const contractId = Number(id);
     if (isNaN(contractId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid contract id" }, { status: 400 });
     }
 
@@ -55,14 +55,14 @@ export async function POST(
     const { settlementValue } = body;
 
     if (settlementValue == null || !Number.isInteger(settlementValue)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "settlementValue must be an integer" },
         { status: 400 }
       );
     }
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
     const ip = extractClientIp(request);
     const idempotencyKey = request.headers.get("Idempotency-Key")!;
     const reqBody = { contractId, settlementValue };
@@ -70,12 +70,12 @@ export async function POST(
     try {
       const idemp = await checkIdempotency(adminId, "settle-contract", idempotencyKey, reqBody);
       if (idemp.cached) {
-        reqLog.finish(200, session.user.id);
+        reqLog.finish(200, user.id);
         return idemp.response;
       }
     } catch (e) {
       if (e instanceof IdempotencyMismatchError) {
-        reqLog.finish(422, session.user.id);
+        reqLog.finish(422, user.id);
         return NextResponse.json({ error: e.message }, { status: 422 });
       }
       throw e;
@@ -229,7 +229,7 @@ export async function POST(
     // Emit WebSocket event for real-time UI updates
     emitContractSettled({ contractId, settlementValue });
 
-    reqLog.finish(200, session.user.id, { contractId, outcome: `settled-${settlementValue}` });
+    reqLog.finish(200, user.id, { contractId, outcome: `settled-${settlementValue}` });
     return NextResponse.json({
       success: true,
       settlementValue,

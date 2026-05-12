@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
@@ -8,8 +8,8 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getLabUser();
+  if (!user) redirect("/");
 
   const contracts = await prisma.contract.findMany({
     where: { status: "OPEN" },
@@ -23,8 +23,8 @@ export default async function HomePage() {
     orderBy: { createdAt: "desc" },
   });
 
-  const isAdmin = session.user.role === "ADMIN";
-  const isLP = session.user.role === "LIQUIDITY_PROVIDER";
+  const isAdmin = user.role === "ADMIN";
+  const isLP = user.role === "LIQUIDITY_PROVIDER";
   const canCreateMarket = isAdmin || isLP;
 
   return (

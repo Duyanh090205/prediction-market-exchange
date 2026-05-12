@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -23,13 +23,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const { userId } = body;
 
     if (!userId || !Number.isInteger(Number(userId))) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "userId required" }, { status: 400 });
     }
 
@@ -46,11 +46,11 @@ export async function POST(request: NextRequest) {
       select: { id: true, username: true },
     });
     if (!targetUser) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
     const rawToken = randomBytes(32).toString("hex");
     const tokenHash = createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
     const resetLink = `${baseUrl}/reset-password?token=${jwt}`;
 
-    reqLog.finish(201, session.user.id, { outcome: `reset-token-for-${targetUser.id}` });
+    reqLog.finish(201, user.id, { outcome: `reset-token-for-${targetUser.id}` });
     return NextResponse.json({ resetLink }, { status: 201 });
   } catch (error) {
     reqLog.error(error);

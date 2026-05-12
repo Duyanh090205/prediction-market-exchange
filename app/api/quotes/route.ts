@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -16,15 +16,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Admin cannot post quotes
-    if (session.user.role === "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role === "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Admin cannot post quotes" },
         { status: 403 }
@@ -33,10 +33,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { contractId, bid, ask, size } = body;
-    const isLP = session.user.role === "LIQUIDITY_PROVIDER";
+    const isLP = user.role === "LIQUIDITY_PROVIDER";
 
     if (contractId == null || size == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "contractId and size are required" },
         { status: 400 }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     // LPs must post both sides (they're market makers)
     if (isLP && (bid == null || ask == null)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Market makers must post both bid and ask" },
         { status: 400 }
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     // Everyone else: at least one side required
     if (bid == null && ask == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "Must provide at least a bid or an ask" },
         { status: 400 }
@@ -62,20 +62,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (bid != null && !Number.isInteger(bid)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "bid must be an integer" }, { status: 400 });
     }
     if (ask != null && !Number.isInteger(ask)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
     }
     if (!Number.isInteger(size)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
     }
 
     if (bid != null && ask != null && bid >= ask) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "bid must be strictly less than ask" },
         { status: 400 }
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (size < 1) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "size must be at least 1" },
         { status: 400 }
@@ -97,28 +97,28 @@ export async function POST(request: NextRequest) {
     });
 
     if (!contract) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json(
         { error: "Contract not found" },
         { status: 404 }
       );
     }
     if (contract.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Cannot post quotes on a settled contract" },
         { status: 409 }
       );
     }
     if (bid != null && (bid < contract.minPrice || bid > contract.maxPrice)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: `bid must be in [${contract.minPrice}, ${contract.maxPrice}]` },
         { status: 400 }
       );
     }
     if (ask != null && (ask < contract.minPrice || ask > contract.maxPrice)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: `ask must be in [${contract.minPrice}, ${contract.maxPrice}]` },
         { status: 400 }
@@ -128,10 +128,10 @@ export async function POST(request: NextRequest) {
     // Worst-case for the maker if their full quote size were taken on the
     // adverse side: -size (per binary spread bet semantics). Reject the post
     // if the maker doesn't have margin to back what they're advertising.
-    const makerId = Number(session.user.id);
+    const makerId = Number(user.id);
     const available = await calculateAvailableMargin(makerId);
     if (available < size) {
-      reqLog.finish(422, session.user.id);
+      reqLog.finish(422, user.id);
       return NextResponse.json(
         {
           error: `Insufficient margin to back this quote: available ${available}, required ${size}`,
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    reqLog.finish(201, session.user.id, { contractId: quote.contractId });
+    reqLog.finish(201, user.id, { contractId: quote.contractId });
     return NextResponse.json({ quote }, { status: 201 });
   } catch (error) {
     reqLog.error(error);

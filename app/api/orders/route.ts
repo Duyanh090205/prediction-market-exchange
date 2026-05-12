@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -58,14 +58,14 @@ export async function POST(request: NextRequest) {
 
   try {
     // ── Auth Check (nextjs-expert: server-side session validation) ──
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role === "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Admin cannot submit orders" },
         { status: 403 }
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     // ── Input Validation ──
     if (contractId == null || side == null || size == null || type == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "contractId, side, size, and type are required" },
         { status: 400 }
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (type !== "LIMIT" && type !== "MARKET") {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "type must be LIMIT or MARKET" },
         { status: 400 }
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (side !== "OVER" && side !== "UNDER") {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "side must be OVER or UNDER" },
         { status: 400 }
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!Number.isInteger(size) || size < 1) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "size must be an integer >= 1" },
         { status: 400 }
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     // S2: max size is capped by margin (dynamic per user), but add a
     // hard sanity ceiling to prevent absurd values
     if (size > 10000) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "size cannot exceed 10000" },
         { status: 400 }
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === "LIMIT" && quoteId == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "LIMIT orders require a quoteId" },
         { status: 400 }
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === "MARKET" && limitPrice == null) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "MARKET orders require a limitPrice for slippage protection" },
         { status: 400 }
@@ -135,14 +135,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (limitPrice != null && !Number.isInteger(limitPrice)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         { error: "limitPrice must be an integer" },
         { status: 400 }
       );
     }
 
-    const actorId = Number(session.user.id);
+    const actorId = Number(user.id);
     const idempotencyKey = request.headers.get("Idempotency-Key")!;
 
     // ── Idempotency Check ──
@@ -154,12 +154,12 @@ export async function POST(request: NextRequest) {
         body
       );
       if (idempResult.cached) {
-        reqLog.finish(200, session.user.id);
+        reqLog.finish(200, user.id);
         return idempResult.response;
       }
     } catch (e) {
       if (e instanceof IdempotencyMismatchError) {
-        reqLog.finish(422, session.user.id);
+        reqLog.finish(422, user.id);
         return NextResponse.json({ error: e.message }, { status: 422 });
       }
       throw e;
@@ -172,14 +172,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (!contract) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json(
         { error: "Contract not found" },
         { status: 404 }
       );
     }
     if (contract.status !== "OPEN") {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Contract is not open" },
         { status: 409 }
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       limitPrice != null &&
       (limitPrice < contract.minPrice || limitPrice > contract.maxPrice)
     ) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json(
         {
           error: `limitPrice must be in [${contract.minPrice}, ${contract.maxPrice}]`,
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
     // ── Submission margin pre-check (cheap fail-fast outside the txn) ──
     const takerMargin = await calculateAvailableMargin(actorId);
     if (takerMargin <= 0) {
-      reqLog.finish(422, session.user.id);
+      reqLog.finish(422, user.id);
       return NextResponse.json(
         {
           error: `Insufficient margin: you have ${takerMargin} available`,
@@ -243,30 +243,30 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       // Handle known matching engine errors gracefully
       if (e instanceof QuoteNotOpenError) {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json({ error: e.message }, { status: 409 });
       }
       if (e instanceof SelfTradeError) {
-        reqLog.finish(409, session.user.id);
+        reqLog.finish(409, user.id);
         return NextResponse.json({ error: e.message }, { status: 409 });
       }
       if (e instanceof SideNotOfferedError) {
-        reqLog.finish(400, session.user.id);
+        reqLog.finish(400, user.id);
         return NextResponse.json({ error: e.message }, { status: 400 });
       }
       if (e instanceof MakerMarginError) {
-        reqLog.finish(422, session.user.id);
+        reqLog.finish(422, user.id);
         return NextResponse.json(
           { error: e.message, cancelledQuoteId: e.quoteId },
           { status: 422 }
         );
       }
       if (e instanceof ContractMismatchError) {
-        reqLog.finish(400, session.user.id);
+        reqLog.finish(400, user.id);
         return NextResponse.json({ error: e.message }, { status: 400 });
       }
       if (e instanceof TakerMarginError) {
-        reqLog.finish(422, session.user.id);
+        reqLog.finish(422, user.id);
         return NextResponse.json({ error: e.message }, { status: 422 });
       }
       throw e; // Unknown error → fall through to 500
@@ -342,7 +342,7 @@ export async function POST(request: NextRequest) {
       statusCode
     );
 
-    reqLog.finish(statusCode, session.user.id, {
+    reqLog.finish(statusCode, user.id, {
       contractId: contract.id,
       outcome: `filled-${result.totalFilled}-of-${orderInput.size}`,
     });

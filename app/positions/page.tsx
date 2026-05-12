@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -6,10 +6,10 @@ import Navbar from "@/app/components/Navbar";
 import { sideColor } from "@/lib/theme";
 
 export default async function PositionsPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getLabUser();
+  if (!user) redirect("/");
 
-  const userId = Number(session.user.id);
+  const userId = Number(user.id);
 
   const trades = await prisma.trade.findMany({
     where: {

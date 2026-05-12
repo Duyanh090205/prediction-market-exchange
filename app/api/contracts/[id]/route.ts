@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -14,8 +14,8 @@ export async function GET(
   const reqLog = createRequestLogger(request);
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -23,7 +23,7 @@ export async function GET(
     const { id } = await params;
     const contractId = Number(id);
     if (isNaN(contractId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid contract ID" }, { status: 400 });
     }
 
@@ -55,11 +55,11 @@ export async function GET(
     });
 
     if (!contract) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Contract not found" }, { status: 404 });
     }
 
-    reqLog.finish(200, session.user.id, { contractId });
+    reqLog.finish(200, user.id, { contractId });
     return NextResponse.json({ contract });
   } catch (error) {
     reqLog.error(error);
@@ -85,24 +85,24 @@ export async function DELETE(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
     const { id } = await params;
     const contractId = Number(id);
     if (isNaN(contractId)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid contract ID" }, { status: 400 });
     }
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
     const ip = extractClientIp(request);
 
     const contract = await prisma.contract.findUnique({
@@ -111,15 +111,15 @@ export async function DELETE(
     });
 
     if (!contract) {
-      reqLog.finish(404, session.user.id);
+      reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Contract not found" }, { status: 404 });
     }
     if (contract.status !== "OPEN") {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Cannot delete a settled contract. P&L has already been applied." }, { status: 400 });
     }
     if (contract._count.trades > 0) {
-      reqLog.finish(409, session.user.id);
+      reqLog.finish(409, user.id);
       return NextResponse.json(
         { error: "Cannot delete a contract with executed trades. Settle it instead." },
         { status: 409 }
@@ -143,7 +143,7 @@ export async function DELETE(
       );
     });
 
-    reqLog.finish(200, session.user.id, { contractId });
+    reqLog.finish(200, user.id, { contractId });
     return NextResponse.json({ success: true });
   } catch (error) {
     reqLog.error(error);

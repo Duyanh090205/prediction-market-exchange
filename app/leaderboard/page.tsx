@@ -1,12 +1,12 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 
 export default async function LeaderboardPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getLabUser();
+  if (!user) redirect("/");
 
   // Rank by SUM(delta) from SETTLEMENT entries — authoritative P&L source
   const ledgerTotals = await prisma.balanceLedger.groupBy({

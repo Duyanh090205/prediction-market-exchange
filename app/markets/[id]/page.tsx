@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -16,8 +16,8 @@ export default async function MarketPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const user = await getLabUser();
+  if (!user) redirect("/");
 
   const { id } = await params;
   const contractId = Number(id);
@@ -52,8 +52,8 @@ export default async function MarketPage({
 
   if (!contract) notFound();
 
-  const currentUserId = Number(session.user.id);
-  const currentUserRole = session.user.role;
+  const currentUserId = Number(user.id);
+  const currentUserRole = user.role;
   const isAdmin = currentUserRole === "ADMIN";
   const canPostQuote = !isAdmin;
 

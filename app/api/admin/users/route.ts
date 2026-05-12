@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
@@ -11,13 +11,13 @@ export async function GET(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ status: "asc" }, { createdAt: "asc" }],
     });
 
-    reqLog.finish(200, session.user.id);
+    reqLog.finish(200, user.id);
     return NextResponse.json({ users });
   } catch (error) {
     reqLog.error(error);
@@ -54,13 +54,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const user = await getLabUser();
+    if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      reqLog.finish(403, session.user.id);
+    if (user.role !== "ADMIN") {
+      reqLog.finish(403, user.id);
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -68,20 +68,20 @@ export async function POST(request: NextRequest) {
     const { username, email, role, balance } = body;
 
     if (!username || typeof username !== "string" || username.trim().length < 2) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "username must be at least 2 characters" }, { status: 400 });
     }
     if (!email || typeof email !== "string" || !email.includes("@")) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Valid email required" }, { status: 400 });
     }
     if (!["ADMIN", "LIQUIDITY_PROVIDER", "USER"].includes(role)) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     const startingBalance = balance != null ? Number(balance) : 1000;
     if (!Number.isInteger(startingBalance) || startingBalance < 0) {
-      reqLog.finish(400, session.user.id);
+      reqLog.finish(400, user.id);
       return NextResponse.json({ error: "balance must be a non-negative integer" }, { status: 400 });
     }
 
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     const tempPassword = randomBytes(6).toString("hex"); // 12 hex chars
     const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
-    const adminId = Number(session.user.id);
+    const adminId = Number(user.id);
 
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
       return created;
     });
 
-    reqLog.finish(201, session.user.id, { outcome: `created-user-${user.id}` });
+    reqLog.finish(201, user.id, { outcome: `created-user-${user.id}` });
     return NextResponse.json({ user, tempPassword }, { status: 201 });
   } catch (error) {
     reqLog.error(error);
