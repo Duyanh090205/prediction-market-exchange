@@ -5,8 +5,8 @@ import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 
 export default async function LeaderboardPage() {
-  const user = await getLabUser();
-  if (!user) redirect("/");
+  const currentUser = await getLabUser();
+  if (!currentUser) redirect("/");
 
   // Rank by SUM(delta) from SETTLEMENT entries — authoritative P&L source
   const ledgerTotals = await prisma.balanceLedger.groupBy({
@@ -97,7 +97,7 @@ export default async function LeaderboardPage() {
                   key={user.id}
                   style={{
                     background:
-                      user.id === Number(session.user.id)
+                      user.id === Number(currentUser.id)
                         ? "rgba(99,102,241,0.06)"
                         : "transparent",
                   }}
@@ -123,7 +123,7 @@ export default async function LeaderboardPage() {
                     }}
                   >
                     {user.username}
-                    {user.id === Number(session.user.id) && (
+                    {user.id === Number(currentUser.id) && (
                       <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#818cf8" }}>
                         (you)
                       </span>
