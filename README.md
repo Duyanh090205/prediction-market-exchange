@@ -107,8 +107,8 @@ npm install
 # For local dev, set both TRADING_DATABASE_URL and TRADING_DATABASE_DIRECT_URL
 # to the same direct Postgres URL (no connection pool).
 
-# 5. Run database migrations
-npx prisma migrate dev
+# 5. Apply the schema to your local database (no migration files required)
+npx prisma db push
 
 # 6. Seed the database with the test users
 npx prisma db seed
@@ -127,12 +127,19 @@ npx jest
 npx tsc --noEmit
 ```
 
+## Production / App Platform builds
+
+`npm run build` runs `scripts/db-deploy.mjs` first, which executes **`prisma db push`** when `TRADING_DATABASE_URL` or `TRADING_DATABASE_DIRECT_URL` is set. That creates or updates tables from `prisma/schema.prisma` on an empty database (no shadow DB; suitable for managed Postgres). It is skipped when those env vars are absent so local `npm run build` without Docker still works.
+
+For schema changes you control, consider moving to versioned **`prisma migrate deploy`** in CI later; `db push` is the pragmatic default until migration history exists.
+
 ### Environment Variables
 
 | Variable | Description |
 |----------|------------|
+| `SKIP_DB_DEPLOY` | Set to `1` to skip `prisma db push` during `npm run build` (e.g. CI without Postgres) |
 | `TRADING_DATABASE_URL` | PostgreSQL URL for the app at runtime (prod: DigitalOcean **pool** + `pgbouncer=true`) |
-| `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma migrate`** / introspection (no pool; same DB as Overview connection details) |
+| `TRADING_DATABASE_DIRECT_URL` | Direct Postgres URL for **`prisma db push`** / migrate (no pool; same DB as Overview connection details) |
 | `NEXTAUTH_SECRET` | Random 32-byte base64 string for JWT signing |
 | `NEXTAUTH_URL` | App URL (`http://localhost:3000` for dev) |
 | `AUTH_TRUST_HOST` | Set `true` behind a reverse proxy (DigitalOcean App Platform, nginx) — avoids `UntrustedHost` |

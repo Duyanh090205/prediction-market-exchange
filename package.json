@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "db:deploy": "node scripts/db-deploy.mjs",
+    "build": "node scripts/db-deploy.mjs && next build",
     "start": "node server.js",
     "lint": "next lint",
     "test": "jest",
