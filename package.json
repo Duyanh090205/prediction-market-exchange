@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "db:deploy": "node scripts/db-deploy.mjs",
-    "build": "node scripts/db-deploy.mjs && next build",
-    "start": "node server.js",
+    "build": "next build",
+    "start": "node scripts/start-with-migrate.js",
     "lint": "next lint",
     "test": "jest",
     "postinstall": "prisma generate"
@@ -20,6 +20,7 @@
     "jose": "^6.2.2",
     "next": "15.3.1",
     "next-auth": "5.0.0-beta.25",
+    "prisma": "^6.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "socket.io": "^4.8.3",
@@ -37,7 +38,6 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "15.3.1",
     "jest": "^30.3.0",
-    "prisma": "^6.6.0",
     "tailwindcss": "^4.1.0",
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",

@@ -1,14 +1,14 @@
 /**
- * Apply pending Prisma migrations during App Platform / CI builds.
+ * Apply pending Prisma migrations (`prisma migrate deploy`).
  *
- * Runs `prisma migrate deploy` — only executes SQL from `prisma/migrations/*`
- * that has not been applied yet. Unlike `prisma db push`, Prisma does not
- * infer destructive diffs from the schema file; what runs is exactly what is
- * in each migration (review each migration for additive-only changes).
+ * Used by:
+ * - `npm run db:deploy` — manual / local
+ * - `scripts/start-with-migrate.js` — **production** (App Platform `npm start`), because
+ *   build workers often cannot reach managed Postgres (P1001); runtime can.
  *
- * - Set SKIP_DB_DEPLOY=1 to skip (e.g. CI that only typechecks).
+ * - Set SKIP_DB_DEPLOY=1 to skip (e.g. local `npm start` without a DB).
  * - If neither TRADING_DATABASE_URL nor TRADING_DATABASE_DIRECT_URL is set, skips
- *   with a warning so `npm run build` still works locally without Postgres.
+ *   with a warning.
  *
  * @see https://www.prisma.io/docs/orm/prisma-client/deployment/deploy-database-changes-with-prisma-migrate
  */

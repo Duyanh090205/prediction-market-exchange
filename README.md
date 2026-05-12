@@ -131,7 +131,9 @@ npx tsc --noEmit
 
 ## Production / App Platform builds
 
-`npm run build` runs `scripts/db-deploy.mjs` first, which executes **`prisma migrate deploy`** when `TRADING_DATABASE_URL` or `TRADING_DATABASE_DIRECT_URL` is set. That applies any **pending** SQL files under `prisma/migrations/` — it does **not** diff the schema and auto-drop objects the way `prisma db push` does. It is skipped when those env vars are absent so local `npm run build` without Docker still works.
+`npm run build` is **`next build` only** (no database access). Pending migrations run when the container starts: `npm start` → `scripts/start-with-migrate.js` → `prisma migrate deploy` → `server.js`. That matches how DigitalOcean routes traffic: **build workers often cannot reach a managed DB** (Prisma `P1001`), while the running service can.
+
+Use `TRADING_DATABASE_DIRECT_URL` from the control panel’s **direct / non-pool** connection (port often differs from the pooler; both hosts may look similar). Wrong port or pool-only URL can also produce connection errors.
 
 **Policy:** new migrations should be **additive only** (create/extend). Do not commit migrations that drop tables or columns unless you have an explicit maintenance window and backups.
 
