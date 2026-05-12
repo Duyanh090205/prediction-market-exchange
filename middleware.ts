@@ -10,6 +10,7 @@ const BASE_PATH = process.env.TRADING_BASE_PATH || "/trading";
 const PUBLIC_PREFIXES = [
   "/api/auth",   // NextAuth internals (kept for signOut helper)
   "/api/health",
+  "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
 
 export async function middleware(req: NextRequest) {
@@ -44,11 +45,14 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // No cookie — send to Lab login, which will redirect back here after sign-in
+  // No cookie — go to the cookie-bridge page first.
+  // The bridge reads the Lab localStorage token and exchanges it for a lab_session
+  // cookie via the Lab backend, then forwards to the original destination.
+  // If no Lab token exists the bridge sends the user to Lab login.
   const dest = req.nextUrl.href;
-  return NextResponse.redirect(
-    new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(dest)}`)
-  );
+  const connectUrl = new URL(`${BASE_PATH}/connect`, req.nextUrl.origin);
+  connectUrl.searchParams.set("next", dest);
+  return NextResponse.redirect(connectUrl);
 }
 
 export const config = {
