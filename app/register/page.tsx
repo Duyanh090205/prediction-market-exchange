@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 import { useRouter } from "next/navigation";
 
 export default function RegisterPage() {
@@ -30,7 +31,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(withTradingBasePath("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, email, password }),

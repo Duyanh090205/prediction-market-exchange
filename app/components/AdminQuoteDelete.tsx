@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 export default function AdminQuoteDelete({
   quoteId,
@@ -23,7 +24,7 @@ export default function AdminQuoteDelete({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}`, { method: "DELETE" });
+      const res = await fetch(withTradingBasePath(`/api/quotes/${quoteId}`), { method: "DELETE" });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         alert(d.error ?? `Failed to cancel quote (${res.status})`);

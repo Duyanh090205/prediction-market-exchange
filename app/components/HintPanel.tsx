@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface HintAuthor {
   id: number;
@@ -46,7 +47,7 @@ function HintItem({
     if (!confirm("Delete this hint?")) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/hints/${hint.id}`, {
+      const res = await fetch(withTradingBasePath(`/api/hints/${hint.id}`), {
         method: "DELETE",
       });
       if (res.ok) {
@@ -171,7 +172,7 @@ function PostHintForm({
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/hints", {
+      const res = await fetch(withTradingBasePath("/api/hints"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

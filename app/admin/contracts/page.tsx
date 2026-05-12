@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 
 interface Contract {
@@ -26,7 +27,7 @@ export default function AdminContractsPage() {
   // Create contract form removed (now in /markets/create)
 
   const fetchContracts = useCallback(async () => {
-    const res = await fetch("/api/contracts?all=1");
+    const res = await fetch(withTradingBasePath("/api/contracts?all=1"));
     if (res.ok) {
       const d = await res.json();
       setContracts(d.contracts ?? []);
@@ -44,7 +45,7 @@ export default function AdminContractsPage() {
       setSettleMsg((m) => ({ ...m, [contractId]: "Enter a valid integer" }));
       return;
     }
-    const res = await fetch(`/api/contracts/${contractId}/settle`, {
+    const res = await fetch(withTradingBasePath(`/api/contracts/${contractId}/settle`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ settlementValue: val }),

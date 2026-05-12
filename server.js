@@ -52,10 +52,100 @@ const SESSION_COOKIE_NAME = dev
   ? "authjs.session-token"
   : "__Secure-authjs.session-token";
 
+/** @param {string} [cookieHeader] */
+function parseCookieHeader(cookieHeader) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!cookieHeader || typeof cookieHeader !== "string") return out;
+  for (const part of cookieHeader.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    let val = part.slice(idx + 1).trim();
+    try {
+      val = decodeURIComponent(val);
+    } catch {
+      // keep raw
+    }
+    if (key) out[key] = val;
+  }
+  return out;
+}
+
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
+  const { jwtVerify } = await import("jose");
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+
+  /**
+   * Match `lib/labAuth.ts`: verify Lab JWT, upsert trading user, return ids for Socket.IO.
+   * Falls back to NextAuth session cookie when Lab cookie is absent or invalid.
+   * @param {Record<string, string>} cookies
+   */
+  async function resolveUserFromSocketCookies(cookies) {
+    const labSecret = process.env.LAB_JWT_SECRET;
+    const labToken = cookies.lab_session;
+    if (labSecret && labToken) {
+      try {
+        const { payload } = await jwtVerify(
+          labToken,
+          new TextEncoder().encode(labSecret),
+          { clockTolerance: 60 }
+        );
+        const email = payload.email;
+        if (!email || typeof email !== "string") {
+          return null;
+        }
+        const tradingRole = payload.role === "admin" ? "ADMIN" : "USER";
+        const labUid = payload.userId;
+        const username = `${email.split("@")[0].slice(0, 48)}-${String(labUid ?? "").slice(-6)}`.slice(
+          0,
+          64
+        );
+        const user = await prisma.user.upsert({
+          where: { email },
+          create: {
+            email,
+            username,
+            hashedPassword: `lab-sso:${labUid}`,
+            status: "ACTIVE",
+            role: tradingRole,
+          },
+          update: { status: "ACTIVE" },
+          select: { id: true, role: true },
+        });
+        return { userId: Number(user.id), role: user.role || "USER" };
+      } catch {
+        // fall through to NextAuth
+      }
+    }
+
+    const sessionToken = cookies[SESSION_COOKIE_NAME];
+    if (!sessionToken) {
+      return null;
+    }
+
+    const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+    if (!secret) {
+      throw new Error("Server misconfiguration: no auth secret");
+    }
+
+    const token = await decode({
+      token: sessionToken,
+      secret,
+      salt: SESSION_COOKIE_NAME,
+    });
+
+    if (!token || !token.id) {
+      return null;
+    }
+
+    return { userId: Number(token.id), role: token.role || "USER" };
+  }
+
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);
@@ -81,64 +171,29 @@ app.prepare().then(async () => {
   // websocket-engineer: log connection metrics (count, latency, errors)
   let connectionCount = 0;
 
-  // ── Authentication Middleware (D2 fix) ────────────────────────────────────
-  // websocket-engineer: authenticate connections using NextAuth JWT.
-  // Parses the session cookie from the WebSocket handshake headers,
-  // decodes and verifies it using the NEXTAUTH_SECRET, and extracts
-  // the real userId. No spoofing possible.
+  // ── Authentication Middleware ─────────────────────────────────────────────
+  // Prefer Lab `lab_session` (same as HTTP middleware); fall back to NextAuth JWT cookie.
   io.use(async (socket, next) => {
     try {
-      // Extract cookies from the handshake headers
       const cookieHeader = socket.handshake.headers?.cookie || "";
-      const cookies = Object.fromEntries(
-        cookieHeader.split(";").map((c) => {
-          const [key, ...rest] = c.trim().split("=");
-          return [key, rest.join("=")];
-        })
-      );
+      const cookies = parseCookieHeader(cookieHeader);
 
-      const sessionToken = cookies[SESSION_COOKIE_NAME];
-      if (!sessionToken) {
+      const resolved = await resolveUserFromSocketCookies(cookies);
+      if (!resolved) {
         console.log(
           JSON.stringify({
             timestamp: new Date().toISOString(),
             level: "WARN",
             event: "ws:auth_failed",
-            reason: "no_session_cookie",
+            reason: "no_valid_session",
             socketId: socket.id,
           })
         );
         return next(new Error("Authentication error: no session cookie"));
       }
 
-      // Decode and verify the JWT using the same secret NextAuth uses
-      const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
-      if (!secret) {
-        return next(new Error("Server misconfiguration: no auth secret"));
-      }
-
-      const token = await decode({
-        token: sessionToken,
-        secret,
-        salt: SESSION_COOKIE_NAME,
-      });
-
-      if (!token || !token.id) {
-        console.log(
-          JSON.stringify({
-            timestamp: new Date().toISOString(),
-            level: "WARN",
-            event: "ws:auth_failed",
-            reason: "invalid_jwt",
-            socketId: socket.id,
-          })
-        );
-        return next(new Error("Authentication error: invalid session"));
-      }
-
-      // Attach the verified userId to the socket
-      socket.userId = Number(token.id);
-      socket.userRole = token.role || "USER";
+      socket.userId = resolved.userId;
+      socket.userRole = resolved.role;
       next();
     } catch (err) {
       console.log(
@@ -220,7 +275,7 @@ app.prepare().then(async () => {
         event: "server:started",
         url: `http://${hostname}:${port}`,
         websockets: true,
-        authMethod: "nextauth-jwt",
+        authMethod: "lab_session|nextauth-jwt",
         pingIntervalMs: 8 * 60 * 1000,
       })
     );

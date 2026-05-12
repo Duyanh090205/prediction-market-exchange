@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface User {
   id: number;
@@ -53,7 +54,7 @@ export default function AdminUsersPage() {
   const [actionMsg, setActionMsg] = useState<Record<number, string>>({});
 
   const fetchUsers = useCallback(async () => {
-    const r = await fetch("/api/admin/users");
+    const r = await fetch(withTradingBasePath("/api/admin/users"));
     if (r.status === 403) {
       router.push("/");
       return;
@@ -70,7 +71,7 @@ export default function AdminUsersPage() {
     setBusyUser(userId);
     setActionMsg((m) => ({ ...m, [userId]: "" }));
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const res = await fetch(withTradingBasePath(`/api/admin/users/${userId}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -128,7 +129,7 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setCreating(true);
     setCreateResult(null);
-    const res = await fetch("/api/admin/users", {
+    const res = await fetch(withTradingBasePath("/api/admin/users"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, email, role, balance: parseInt(balance, 10) }),
@@ -151,7 +152,7 @@ export default function AdminUsersPage() {
     setResetUserId(userId);
     setResetLoading(true);
     setResetLink(null);
-    const res = await fetch("/api/admin/password-reset", {
+    const res = await fetch(withTradingBasePath("/api/admin/password-reset"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId }),

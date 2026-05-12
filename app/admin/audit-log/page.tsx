@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface Entry {
   id: number;
@@ -40,7 +41,9 @@ export default function AdminAuditLogPage() {
 
   useEffect(() => {
     setLoading(true);
-    const url = action ? `/api/admin/audit-log?action=${action}` : "/api/admin/audit-log";
+    const url = withTradingBasePath(
+      action ? `/api/admin/audit-log?action=${action}` : "/api/admin/audit-log"
+    );
     fetch(url)
       .then((r) => r.json())
       .then((d) => setEntries(d.entries ?? []))

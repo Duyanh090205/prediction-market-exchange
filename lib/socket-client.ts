@@ -3,9 +3,9 @@
 // websocket-engineer: automatic reconnection with exponential backoff,
 // connection state management (connecting, connected, disconnecting)
 //
-// D2 fix: The server now authenticates via the NextAuth session cookie,
-// which the browser sends automatically with `credentials: true`.
-// The client no longer needs to send a userId in the auth object.
+// The server authenticates via the Lab `lab_session` cookie (or NextAuth
+// session cookie as fallback). The browser sends cookies automatically with
+// `credentials: true`.
 //
 // Usage in Client Components:
 //   import { getSocket } from "@/lib/socket-client";
@@ -22,8 +22,8 @@ let socket: Socket | null = null;
  * Get or create the Socket.IO client singleton.
  * websocket-engineer: implements exponential backoff reconnection.
  *
- * D2 fix: No userId needed — the server validates the NextAuth
- * session cookie from the browser's Cookie header automatically.
+ * No userId in the handshake — the server reads session cookies from the
+ * WebSocket upgrade request.
  */
 export function getSocket(): Socket {
   if (socket && socket.connected) {

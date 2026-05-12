@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 export default function AdminDeleteMarketButton({ contractId }: { contractId: number }) {
   const [loading, setLoading] = useState(false);
@@ -14,7 +15,7 @@ export default function AdminDeleteMarketButton({ contractId }: { contractId: nu
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/contracts/${contractId}`, {
+      const res = await fetch(withTradingBasePath(`/api/contracts/${contractId}`), {
         method: "DELETE",
       });
 

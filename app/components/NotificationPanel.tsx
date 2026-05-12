@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface NotificationItem {
   id: number;
@@ -21,7 +22,7 @@ export default function NotificationPanel() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch("/api/notifications");
+      const res = await fetch(withTradingBasePath("/api/notifications"));
       if (res.ok) setData(await res.json());
     } catch {
       // silent — panel just shows stale data
@@ -38,7 +39,7 @@ export default function NotificationPanel() {
   // Mark all as read when opening panel
   useEffect(() => {
     if (!open) return;
-    fetch("/api/notifications/read", {
+    fetch(withTradingBasePath("/api/notifications/read"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
     }).then(() => fetchData());

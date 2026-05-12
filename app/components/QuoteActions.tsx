@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface QuoteActionsProps {
   quoteId: number;
@@ -68,7 +69,7 @@ export default function QuoteActions({
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}`, {
+      const res = await fetch(withTradingBasePath(`/api/quotes/${quoteId}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bid: bidNum, ask: askNum, size: sizeNum }),
@@ -96,7 +97,7 @@ export default function QuoteActions({
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}`, {
+      const res = await fetch(withTradingBasePath(`/api/quotes/${quoteId}`), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

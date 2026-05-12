@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface PostQuoteFormProps {
   contractId: number;
@@ -75,7 +76,7 @@ export default function PostQuoteForm({
 
     setLoading(true);
     try {
-      const res = await fetch("/api/quotes", {
+      const res = await fetch(withTradingBasePath("/api/quotes"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

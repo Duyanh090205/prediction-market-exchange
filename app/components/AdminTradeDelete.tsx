@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 export default function AdminTradeDelete({ tradeId }: { tradeId: number }) {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function AdminTradeDelete({ tradeId }: { tradeId: number }) {
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/trades/${tradeId}`, { method: "DELETE" });
+      const res = await fetch(withTradingBasePath(`/api/trades/${tradeId}`), { method: "DELETE" });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         alert(d.error ?? `Failed to delete trade (${res.status})`);

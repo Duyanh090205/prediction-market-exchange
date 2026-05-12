@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { v7 as uuidv7 } from "uuid";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface MarketOrderFormProps {
   contractId: number;
@@ -42,7 +43,7 @@ export default function MarketOrderForm({
     setSuccess(null);
 
     try {
-      const res = await fetch("/api/orders", {
+      const res = await fetch(withTradingBasePath("/api/orders"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

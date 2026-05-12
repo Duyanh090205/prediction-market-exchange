@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 export default function CreateMarketPage() {
   const [title, setTitle] = useState("");
@@ -28,7 +28,7 @@ export default function CreateMarketPage() {
     }
 
     try {
-      const res = await fetch("/api/contracts", {
+      const res = await fetch(withTradingBasePath("/api/contracts"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
