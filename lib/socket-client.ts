@@ -26,13 +26,17 @@ let socket: Socket | null = null;
  * WebSocket upgrade request.
  */
 export function getSocket(): Socket {
-  if (socket && socket.connected) {
+  // Reuse the existing socket while it is connected OR still (re)connecting.
+  // Recreating a mid-connection socket caused a connect/disconnect loop (the
+  // console churn). Only when it has permanently given up (active === false,
+  // e.g. reconnection attempts exhausted after a long outage) do we tear it
+  // down and create a fresh one — so real-time can recover without a page reload.
+  if (socket && (socket.connected || socket.active)) {
     return socket;
   }
-
-  // Disconnect stale socket if it exists
   if (socket) {
     socket.disconnect();
+    socket = null;
   }
 
   socket = io({
@@ -61,14 +65,4 @@ export function getSocket(): Socket {
   });
 
   return socket;
-}
-
-/**
- * Disconnect and cleanup the socket instance.
- */
-export function disconnectSocket(): void {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
 }

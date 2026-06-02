@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { v7 as uuidv7 } from "uuid";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
@@ -19,6 +20,7 @@ export default function LimitOrderForm({
   bid,
   ask,
 }: LimitOrderFormProps) {
+  const router = useRouter();
   const [size, setSize] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export default function LimitOrderForm({
       } else {
         setSuccess(`Successfully filled ${data.totalFilled} ${side} contracts!`);
         setSize("");
+        router.refresh();
       }
     } catch {
       setError("Network error — please try again");
@@ -88,26 +91,28 @@ export default function LimitOrderForm({
         </p>
       </div>
 
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        <button
-          onClick={() => submit("OVER")}
-          disabled={submitting || ask == null}
-          title={ask == null ? "Maker has not posted an ask — cannot buy OVER" : ""}
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.75rem" }}>
+        <input
+          type="number"
+          value={size}
+          onChange={(e) => setSize(e.target.value)}
+          placeholder={`Enter size first (max ${quoteSize})`}
+          min={1}
+          max={quoteSize}
+          disabled={submitting}
           style={{
             flex: 1,
-            padding: "0.5rem",
-            background: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.3)",
+            padding: "0.5rem 0.75rem",
+            background: "#0a0a0f",
+            border: "1px solid #2a2a3e",
             borderRadius: "0.375rem",
-            color: "#ef4444",
-            fontSize: "0.8125rem",
-            fontWeight: 600,
-            cursor: submitting || ask == null ? "not-allowed" : "pointer",
-            opacity: submitting || ask == null ? 0.4 : 1,
+            color: "#e4e4ed",
+            fontSize: "0.875rem",
           }}
-        >
-          {ask != null ? `Buy OVER @ ${ask}` : "OVER unavailable"}
-        </button>
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: "0.5rem" }}>
         <button
           onClick={() => submit("UNDER")}
           disabled={submitting || bid == null}
@@ -127,27 +132,25 @@ export default function LimitOrderForm({
         >
           {bid != null ? `Buy UNDER @ ${bid}` : "UNDER unavailable"}
         </button>
-      </div>
-
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-        <input
-          type="number"
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-          placeholder={`Size (max ${quoteSize})`}
-          min={1}
-          max={quoteSize}
-          disabled={submitting}
+        <button
+          onClick={() => submit("OVER")}
+          disabled={submitting || ask == null}
+          title={ask == null ? "Maker has not posted an ask — cannot buy OVER" : ""}
           style={{
             flex: 1,
-            padding: "0.5rem 0.75rem",
-            background: "#0a0a0f",
-            border: "1px solid #2a2a3e",
+            padding: "0.5rem",
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.3)",
             borderRadius: "0.375rem",
-            color: "#e4e4ed",
-            fontSize: "0.875rem",
+            color: "#ef4444",
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            cursor: submitting || ask == null ? "not-allowed" : "pointer",
+            opacity: submitting || ask == null ? 0.4 : 1,
           }}
-        />
+        >
+          {ask != null ? `Buy OVER @ ${ask}` : "OVER unavailable"}
+        </button>
       </div>
 
       {error && (

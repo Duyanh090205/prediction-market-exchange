@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { v7 as uuidv7 } from "uuid";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 
@@ -47,7 +48,10 @@ export default function AdminContractsPage() {
     }
     const res = await fetch(withTradingBasePath(`/api/contracts/${contractId}/settle`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": uuidv7(),
+      },
       body: JSON.stringify({ settlementValue: val }),
     });
     const data = await res.json();
@@ -105,20 +109,25 @@ export default function AdminContractsPage() {
             {c.status === "OPEN" && (
               <div style={{ marginTop: "0.75rem" }}>
                 {settling === c.id ? (
-                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <input
-                      type="number"
-                      placeholder="Settlement value"
-                      value={settlementValue}
-                      onChange={(e) => setSettlementValue(e.target.value)}
-                      style={{ padding: "0.4rem 0.625rem", background: "#0a0a0f", border: "1px solid #2a2a3e", borderRadius: "0.25rem", color: "#e4e4ed", fontSize: "0.875rem", width: "160px" }}
-                    />
-                    <button onClick={() => settleContract(c.id)} style={{ padding: "0.4rem 1rem", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "0.25rem", color: "#ef4444", fontWeight: 600, fontSize: "0.8125rem", cursor: "pointer" }}>
-                      Confirm Settle
-                    </button>
-                    <button onClick={() => setSettling(null)} style={{ padding: "0.4rem 0.75rem", background: "transparent", border: "1px solid #2a2a3e", borderRadius: "0.25rem", color: "#5a5a72", fontSize: "0.8125rem", cursor: "pointer" }}>
-                      Cancel
-                    </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    <p style={{ margin: 0, fontSize: "0.8125rem", color: "#f59e0b" }}>
+                      ⚠ Sẽ chốt sổ <strong>{c._count.trades}</strong> giao dịch và <strong>không thể hoàn tác</strong>. Kiểm tra kỹ giá trị trước khi xác nhận.
+                    </p>
+                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        type="number"
+                        placeholder="Settlement value"
+                        value={settlementValue}
+                        onChange={(e) => setSettlementValue(e.target.value)}
+                        style={{ padding: "0.4rem 0.625rem", background: "#0a0a0f", border: "1px solid #2a2a3e", borderRadius: "0.25rem", color: "#e4e4ed", fontSize: "0.875rem", width: "160px" }}
+                      />
+                      <button onClick={() => settleContract(c.id)} style={{ padding: "0.4rem 1rem", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "0.25rem", color: "#ef4444", fontWeight: 600, fontSize: "0.8125rem", cursor: "pointer" }}>
+                        Confirm Settle
+                      </button>
+                      <button onClick={() => setSettling(null)} style={{ padding: "0.4rem 0.75rem", background: "transparent", border: "1px solid #2a2a3e", borderRadius: "0.25rem", color: "#5a5a72", fontSize: "0.8125rem", cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <button onClick={() => { setSettling(c.id); setSettlementValue(""); }} style={{ padding: "0.4rem 1rem", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "0.25rem", color: "#ef4444", fontSize: "0.8125rem", cursor: "pointer" }}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { v7 as uuidv7 } from "uuid";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
@@ -15,6 +16,7 @@ export default function MarketOrderForm({
   minPrice,
   maxPrice,
 }: MarketOrderFormProps) {
+  const router = useRouter();
   const [side, setSide] = useState<"OVER" | "UNDER">("OVER");
   const [size, setSize] = useState<string>("");
   const [limitPrice, setLimitPrice] = useState<string>("");
@@ -67,6 +69,7 @@ export default function MarketOrderForm({
           setSuccess(`Successfully filled ${data.totalFilled} contracts!`);
           setSize("");
           setLimitPrice("");
+          router.refresh();
         }
       }
     } catch {
@@ -102,37 +105,37 @@ export default function MarketOrderForm({
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
           <button
             type="button"
-            onClick={() => setSide("OVER")}
-            style={{
-              flex: 1,
-              padding: "0.5rem",
-              background: side === "OVER" ? "rgba(239,68,68,0.2)" : "transparent",
-              border: `1px solid ${side === "OVER" ? "#ef4444" : "#2a2a3e"}`,
-              borderRadius: "0.375rem",
-              color: side === "OVER" ? "#ef4444" : "#8888a0",
-              fontSize: "0.8125rem",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            BUY OVER
-          </button>
-          <button
-            type="button"
             onClick={() => setSide("UNDER")}
             style={{
               flex: 1,
               padding: "0.5rem",
-              background: side === "UNDER" ? "rgba(34,197,94,0.2)" : "transparent",
-              border: `1px solid ${side === "UNDER" ? "#22c55e" : "#2a2a3e"}`,
+              background: side === "UNDER" ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.1)",
+              border: `1px solid ${side === "UNDER" ? "#22c55e" : "rgba(34,197,94,0.3)"}`,
               borderRadius: "0.375rem",
-              color: side === "UNDER" ? "#22c55e" : "#8888a0",
+              color: "#22c55e",
               fontSize: "0.8125rem",
               fontWeight: 600,
               cursor: "pointer",
             }}
           >
             BUY UNDER
+          </button>
+          <button
+            type="button"
+            onClick={() => setSide("OVER")}
+            style={{
+              flex: 1,
+              padding: "0.5rem",
+              background: side === "OVER" ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.1)",
+              border: `1px solid ${side === "OVER" ? "#ef4444" : "rgba(239,68,68,0.3)"}`,
+              borderRadius: "0.375rem",
+              color: "#ef4444",
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            BUY OVER
           </button>
         </div>
 

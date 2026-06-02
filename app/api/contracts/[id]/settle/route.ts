@@ -62,6 +62,29 @@ export async function POST(
       );
     }
 
+    // Settlement value must fall inside the contract's price band — otherwise
+    // P&L is computed against an impossible outcome (e.g. 500 on a 0–100 band).
+    const bandContract = await prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { minPrice: true, maxPrice: true },
+    });
+    if (!bandContract) {
+      reqLog.finish(404, user.id);
+      return NextResponse.json({ error: "Contract not found" }, { status: 404 });
+    }
+    if (
+      settlementValue < bandContract.minPrice ||
+      settlementValue > bandContract.maxPrice
+    ) {
+      reqLog.finish(400, user.id);
+      return NextResponse.json(
+        {
+          error: `settlementValue must be within the price band ${bandContract.minPrice}–${bandContract.maxPrice}`,
+        },
+        { status: 400 }
+      );
+    }
+
     const adminId = Number(user.id);
     const ip = extractClientIp(request);
     const idempotencyKey = request.headers.get("Idempotency-Key")!;

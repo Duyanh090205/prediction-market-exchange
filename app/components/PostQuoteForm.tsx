@@ -137,7 +137,8 @@ export default function PostQuoteForm({
   }
 
   const inputStyle: React.CSSProperties = {
-    flex: 1,
+    width: "100%",
+    boxSizing: "border-box",
     padding: "0.5rem 0.75rem",
     background: "#0a0a0f",
     border: "1px solid #2a2a3e",
@@ -229,7 +230,7 @@ export default function PostQuoteForm({
                 letterSpacing: "0.05em",
               }}
             >
-              Bid {isLP ? "" : "(optional)"}
+              Bid
             </label>
             <input
               type="number"
@@ -252,7 +253,7 @@ export default function PostQuoteForm({
                 letterSpacing: "0.05em",
               }}
             >
-              Ask {isLP ? "" : "(optional)"}
+              Ask
             </label>
             <input
               type="number"

@@ -5,26 +5,23 @@
 // nextjs-expert: Push 'use client' boundary down to the interactive leaf.
 // The parent Navbar remains a Server Component.
 //
-// websocket-engineer: connect on mount, cleanup on unmount,
-// listen for TRADE_EXECUTED + CONTRACT_SETTLED events to trigger
-// a lightweight router.refresh() that re-fetches server data.
+// websocket-engineer: subscribe to TRADE_EXECUTED / CONTRACT_SETTLED /
+// QUOTE_UPDATED and trigger a debounced router.refresh().
 //
-// L3 fix: debounce rapid WS events (e.g., 5-quote sweep) into a single refresh.
+// Cleanup removes ONLY this component's listeners — it does NOT disconnect the
+// shared singleton socket. Tearing the socket down on every unmount (and under
+// React StrictMode / Fast Refresh in dev) caused a connect/disconnect loop.
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getSocket, disconnectSocket } from "@/lib/socket-client";
+import { getSocket } from "@/lib/socket-client";
 
 // No props needed — the socket authenticates via session cookie
 export default function PortfolioLive() {
   const router = useRouter();
-  const connectedRef = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (connectedRef.current) return;
-    connectedRef.current = true;
-
     const socket = getSocket();
 
     // L3 fix: debounce rapid refresh calls into a single 300ms window
@@ -33,19 +30,15 @@ export default function PortfolioLive() {
       refreshTimer.current = setTimeout(() => router.refresh(), 300);
     };
 
-    // When a trade is executed (we are either taker or maker), refresh
     socket.on("TRADE_EXECUTED", debouncedRefresh);
-
-    // When a contract settles, refresh to show updated balances
     socket.on("CONTRACT_SETTLED", debouncedRefresh);
-
-    // When a quote is updated (order book changed), refresh
     socket.on("QUOTE_UPDATED", debouncedRefresh);
 
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      disconnectSocket();
-      connectedRef.current = false;
+      socket.off("TRADE_EXECUTED", debouncedRefresh);
+      socket.off("CONTRACT_SETTLED", debouncedRefresh);
+      socket.off("QUOTE_UPDATED", debouncedRefresh);
     };
   }, [router]);
 

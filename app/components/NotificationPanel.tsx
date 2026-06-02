@@ -36,14 +36,10 @@ export default function NotificationPanel() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Mark all as read when opening panel
-  useEffect(() => {
-    if (!open) return;
-    fetch(withTradingBasePath("/api/notifications/read"), {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-    }).then(() => fetchData());
-  }, [open, fetchData]);
+  // Note: notifications are NOT auto-marked read on open anymore — the unread
+  // badge persists until the user clicks the explicit "Mark all read" button
+  // (UX-9). Otherwise opening the panel cleared unread instantly and that button
+  // never appeared.
 
   // Close on outside click
   useEffect(() => {
@@ -57,6 +53,13 @@ export default function NotificationPanel() {
   }, []);
 
   // Legacy handleConfirm and handleReject removed since trades execute instantly.
+
+  const markAllRead = useCallback(() => {
+    fetch(withTradingBasePath("/api/notifications/read"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+    }).then(() => fetchData());
+  }, [fetchData]);
 
   const unread = data?.unreadCount ?? 0;
 
@@ -105,11 +108,12 @@ export default function NotificationPanel() {
       {open && (
         <div
           style={{
-            position: "absolute",
-            right: 0,
-            top: "calc(100% + 0.5rem)",
-            width: "380px",
-            maxHeight: "480px",
+            position: "fixed",
+            top: "3.25rem",
+            right: "0.5rem",
+            left: "auto",
+            width: "min(380px, calc(100vw - 1rem))",
+            maxHeight: "min(480px, 70vh)",
             overflowY: "auto",
             background: "#12121a",
             border: "1px solid #2a2a3e",
@@ -120,16 +124,41 @@ export default function NotificationPanel() {
         >
           <div
             style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
               padding: "0.875rem 1rem",
               borderBottom: "1px solid #1a1a2e",
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              color: "#5a5a72",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
             }}
           >
-            Notifications
+            <span
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                color: "#5a5a72",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Notifications
+            </span>
+            {unread > 0 && (
+              <button
+                onClick={markAllRead}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#818cf8",
+                  fontSize: "0.6875rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Mark all read
+              </button>
+            )}
           </div>
 
           {/* Pending requests section removed */}

@@ -43,15 +43,17 @@ export default async function Navbar() {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 1.5rem",
-        height: "3.5rem",
+        flexWrap: "wrap",
+        gap: "0.5rem",
+        padding: "0.5rem 1rem",
+        minHeight: "3.5rem",
         background: "rgba(18,18,26,0.92)",
         backdropFilter: "blur(8px)",
         borderBottom: "1px solid #2a2a3e",
       }}
     >
       {/* Left: logo + nav links */}
-      <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
         <Link
           href="/"
           style={{
@@ -80,7 +82,7 @@ export default async function Navbar() {
       </div>
 
       {/* Right: user info */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
         <NotificationPanel />
 
         {badge && (
@@ -109,9 +111,9 @@ export default async function Navbar() {
             {username}
           </span>
           <div style={{ fontSize: "0.7rem", color: "#8888a0", display: "flex", gap: "0.4rem" }}>
-            <span>Bal: <strong style={{ color: "#e4e4ed", fontWeight: 500 }}>{dbUser.balance}</strong></span>
+            <span>Bal: <strong style={{ color: "#e4e4ed", fontWeight: 500 }}>{dbUser.balance.toLocaleString()}</strong></span>
             <span>|</span>
-            <span>Margin: <strong style={{ color: availableMargin >= 0 ? "#10b981" : "#ef4444", fontWeight: 500 }}>{availableMargin}</strong></span>
+            <span>Margin: <strong style={{ color: availableMargin >= 0 ? "#10b981" : "#ef4444", fontWeight: 500 }}>{availableMargin.toLocaleString()}</strong></span>
           </div>
         </div>
 

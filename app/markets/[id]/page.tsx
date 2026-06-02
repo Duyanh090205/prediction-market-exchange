@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
+import ContractRoom from "@/app/components/ContractRoom";
 import QuoteCard from "@/app/components/QuoteCard";
 import HintPanel from "@/app/components/HintPanel";
 import PostQuoteForm from "@/app/components/PostQuoteForm";
@@ -77,6 +78,7 @@ export default async function MarketPage({
   return (
     <>
       <Navbar />
+      <ContractRoom contractId={contractId} />
       <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {/* Breadcrumb */}
         <div style={{ marginBottom: "1rem" }}>
@@ -135,7 +137,7 @@ export default async function MarketPage({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             gap: "1.5rem",
             marginBottom: "2rem",
           }}
@@ -277,7 +279,7 @@ export default async function MarketPage({
               >
                 <thead>
                   <tr>
-                    {["Taker", "Side", "Strike", "Size", "Maker", ...(isAdmin ? [""] : [])].map((h) => (
+                    {["Taker", "Side", "Strike", "Size", "Maker", "Time", ...(isAdmin ? [""] : [])].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -347,6 +349,17 @@ export default async function MarketPage({
                         }}
                       >
                         {t.maker.username}
+                      </td>
+                      <td
+                        style={{
+                          padding: "0.625rem 0.75rem",
+                          color: "#5a5a72",
+                          fontSize: "0.75rem",
+                          whiteSpace: "nowrap",
+                          borderBottom: "1px solid #1a1a2e",
+                        }}
+                      >
+                        {new Date(t.createdAt).toLocaleString()}
                       </td>
                       {isAdmin && (
                         <td style={{ padding: "0.625rem 0.75rem", borderBottom: "1px solid #1a1a2e" }}>

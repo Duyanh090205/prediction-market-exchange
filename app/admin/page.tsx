@@ -2,7 +2,6 @@ import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import Navbar from "@/app/components/Navbar";
 
 export default async function AdminDashboard() {
   const user = await getLabUser();
@@ -35,7 +34,6 @@ export default async function AdminDashboard() {
 
   return (
     <>
-      <Navbar />
       <main style={{ maxWidth: "900px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         <Link href="/" style={{ fontSize: "0.875rem", color: "#5a5a72", textDecoration: "none", display: "inline-block", marginBottom: "1rem" }}>
           ← Markets
@@ -54,7 +52,7 @@ export default async function AdminDashboard() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
             gap: "1rem",
             marginBottom: "2rem",
           }}

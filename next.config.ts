@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
-const basePath = process.env.TRADING_BASE_PATH || "";
+// Default must match middleware.ts (which falls back to "/trading"). If these
+// two disagree when TRADING_BASE_PATH is unset, every page redirect-loops at
+// /trading/connect. Production sets TRADING_BASE_PATH explicitly, so this
+// default only affects local runs without the env var.
+const basePath = process.env.TRADING_BASE_PATH || "/trading";
 
 // Production CSP — strict by default. `'unsafe-inline'` is removed from
 // script-src; if you need third-party scripts later, generate a per-request
