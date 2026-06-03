@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { calculateAvailableMargin } from "@/lib/margin";
+import { recordPricePoint } from "@/lib/price-history";
 
 // POST /api/quotes — USER or LIQUIDITY_PROVIDER only (Admin blocked)
 export async function POST(request: NextRequest) {
@@ -153,6 +154,9 @@ export async function POST(request: NextRequest) {
         maker: { select: { id: true, username: true, role: true } },
       },
     });
+
+    // Append a price-chart point — a new quote can move the market mid.
+    await recordPricePoint(quote.contractId);
 
     reqLog.finish(201, user.id, { contractId: quote.contractId });
     return NextResponse.json({ quote }, { status: 201 });

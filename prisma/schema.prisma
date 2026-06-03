@@ -93,9 +93,26 @@ model Contract {
   updatedAt       DateTime       @updatedAt
 
   // Relations
-  quotes Quote[]
-  trades Trade[]
-  hints  Hint[]
+  quotes      Quote[]
+  trades      Trade[]
+  hints       Hint[]
+  pricePoints PricePoint[]
+}
+
+// Time series of the market mid-price per contract — powers the live price chart.
+// One row is appended whenever the market mid moves (after a fill or a quote change).
+model PricePoint {
+  id         Int      @id @default(autoincrement())
+  contractId Int
+  ts         DateTime @default(now())
+  mid        Float
+  lastTrade  Int?
+  bestBid    Int?
+  bestAsk    Int?
+
+  contract Contract @relation(fields: [contractId], references: [id])
+
+  @@index([contractId, ts])
 }
 
 model Quote {

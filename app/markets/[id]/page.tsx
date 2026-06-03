@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import ContractRoom from "@/app/components/ContractRoom";
+import PriceChart from "@/app/components/PriceChart";
 import QuoteCard from "@/app/components/QuoteCard";
 import HintPanel from "@/app/components/HintPanel";
 import PostQuoteForm from "@/app/components/PostQuoteForm";
@@ -131,6 +132,14 @@ export default async function MarketPage({
               <> · Settled at <strong style={{ color: "#818cf8" }}>{contract.settlementValue}</strong></>
             )}
           </p>
+        </div>
+
+        {/* Live price chart */}
+        <div style={{ marginBottom: "2rem", padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
+          <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Market Price
+          </p>
+          <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} />
         </div>
 
         {/* Two-column layout */}

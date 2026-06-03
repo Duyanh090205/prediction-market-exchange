@@ -23,6 +23,7 @@ import {
   type MatchResult,
 } from "@/lib/matching-engine";
 import { emitTradeExecuted, emitQuoteUpdated } from "@/lib/socket-events";
+import { recordPricePoint } from "@/lib/price-history";
 
 // POST /api/orders — Matching Engine (instant execution)
 // Replaces the manual take-request → confirm flow.
@@ -317,6 +318,9 @@ export async function POST(request: NextRequest) {
         status: "CANCELLED",
       });
     }
+
+    // Append a price-chart point if the fill moved the market mid.
+    await recordPricePoint(orderInput.contractId);
 
     const responseBody: Record<string, unknown> = {
       type: orderInput.type,

@@ -82,3 +82,23 @@ export function emitContractSettled(event: ContractSettledEvent): void {
 
   io.to(`contract:${event.contractId}`).emit("CONTRACT_SETTLED", event);
 }
+
+export interface PriceUpdatedEvent {
+  contractId: number;
+  ts: string; // ISO timestamp
+  mid: number;
+  bestBid: number | null;
+  bestAsk: number | null;
+}
+
+/**
+ * Emit when the market mid-price of a contract moves (powers the live price
+ * chart). Sent to the contract room as an incremental point — clients append
+ * it rather than refetching the whole series.
+ */
+export function emitPriceUpdated(event: PriceUpdatedEvent): void {
+  const io = getIO();
+  if (!io) return;
+
+  io.to(`contract:${event.contractId}`).emit("PRICE_UPDATED", event);
+}
