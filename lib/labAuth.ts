@@ -56,9 +56,19 @@ export async function getLabUser(): Promise<LabUser | null> {
 
   if (!claims.email) return null;
 
+  // Email allowlist promoted to trading ADMIN (in addition to Lab's own
+  // role=admin). Lets a known operator manage the env without a separate Lab
+  // admin account — this still requires a valid Lab login (NOT an auth bypass).
+  // ⚠️ Keep this on the `dev` branch — do NOT merge to snguyen_dev/prod, or
+  // these emails become admin on production too.
+  const ADMIN_EMAILS = new Set<string>([
+    "nguyenanhkt9205@gmail.com",
+  ]);
+  const isAdminEmail = ADMIN_EMAILS.has(claims.email.toLowerCase());
+
   // Map Lab role to trading role
   const tradingRole =
-    claims.role === "admin" ? "ADMIN" : "USER";
+    claims.role === "admin" || isAdminEmail ? "ADMIN" : "USER";
 
   // Upsert: create trading user on first Lab login, keep existing data otherwise
   const username = `${claims.email.split("@")[0].slice(0, 48)}-${String(claims.userId).slice(-6)}`.slice(0, 64);
@@ -75,6 +85,9 @@ export async function getLabUser(): Promise<LabUser | null> {
     },
     update: {
       status: "ACTIVE",
+      // Promote allowlisted admins on every login (their account may already
+      // exist as USER from a prior login, which the upsert would not change).
+      ...(isAdminEmail ? { role: "ADMIN" as const } : {}),
     },
     select: { id: true, email: true, username: true, role: true },
   });
