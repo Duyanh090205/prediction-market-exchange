@@ -256,52 +256,6 @@ export async function PATCH(
       return NextResponse.json({ success: true });
     }
 
-    if (action === "set_role") {
-      const role = body.role;
-      // Only the two non-admin roles are settable here. Granting/removing ADMIN
-      // is deliberately not exposed through this toggle.
-      if (role !== "USER" && role !== "LIQUIDITY_PROVIDER") {
-        reqLog.finish(400, user.id);
-        return NextResponse.json(
-          { error: "role must be USER or LIQUIDITY_PROVIDER" },
-          { status: 400 }
-        );
-      }
-      if (target.role === "ADMIN") {
-        reqLog.finish(403, user.id);
-        return NextResponse.json(
-          { error: "Cannot change an admin's role here" },
-          { status: 403 }
-        );
-      }
-      if (target.role === role) {
-        reqLog.finish(409, user.id);
-        return NextResponse.json(
-          { error: `User is already ${role}` },
-          { status: 409 }
-        );
-      }
-
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({ where: { id: userId }, data: { role } });
-        await logAdminAction(
-          {
-            adminId,
-            action: "SET_ROLE",
-            targetType: "User",
-            targetUserId: userId,
-            ipAddress: ip,
-            metadata: { from: target.role, to: role },
-            note: `Changed role of ${target.username}: ${target.role} → ${role}`,
-          },
-          tx
-        );
-      });
-
-      reqLog.finish(200, user.id);
-      return NextResponse.json({ success: true });
-    }
-
     reqLog.finish(400, user.id);
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {

@@ -16,7 +16,6 @@ export type AdminAction =
   | "SUSPEND_USER"
   | "REACTIVATE_USER"
   | "ADJUST_BALANCE"
-  | "SET_ROLE"
   | "GENERATE_RESET_TOKEN"
   | "PASSWORD_RESET"
   | "DELETE_CONTRACT"
