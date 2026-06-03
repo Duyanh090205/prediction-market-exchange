@@ -3,6 +3,7 @@ import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
+import { emitContractCreated } from "@/lib/socket-events";
 
 // GET /api/contracts — all OPEN contracts with quotes (including maker role)
 export async function GET(request: NextRequest) {
@@ -119,6 +120,9 @@ export async function POST(request: NextRequest) {
         status: "OPEN",
       },
     });
+
+    // Broadcast so every open markets list refreshes live (no manual reload).
+    emitContractCreated({ contractId: contract.id, title: contract.title });
 
     reqLog.finish(201, user.id, { contractId: contract.id });
     return NextResponse.json({ contract }, { status: 201 });

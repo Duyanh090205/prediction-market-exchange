@@ -102,3 +102,19 @@ export function emitPriceUpdated(event: PriceUpdatedEvent): void {
 
   io.to(`contract:${event.contractId}`).emit("PRICE_UPDATED", event);
 }
+
+export interface ContractCreatedEvent {
+  contractId: number;
+  title: string;
+}
+
+/**
+ * Emit when a new contract (market) is created. Broadcast to ALL connected
+ * clients (not a room) so every open-markets list refreshes without a reload.
+ */
+export function emitContractCreated(event: ContractCreatedEvent): void {
+  const io = getIO();
+  if (!io) return;
+
+  io.emit("CONTRACT_CREATED", event);
+}

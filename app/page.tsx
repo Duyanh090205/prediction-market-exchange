@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 import ContractCard from "@/app/components/ContractCard";
+import MarketsLiveRefresher from "@/app/components/MarketsLiveRefresher";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function HomePage() {
   return (
     <>
       <Navbar />
+      <MarketsLiveRefresher />
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {/* Header */}
         <div
