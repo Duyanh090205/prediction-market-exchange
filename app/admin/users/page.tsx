@@ -125,6 +125,12 @@ export default function AdminUsersPage() {
     await userAction(u.id, { action: "adjust_balance", delta, reason: reason.trim() });
   }
 
+  async function changeUserRole(u: User, role: string) {
+    const label = role === "LIQUIDITY_PROVIDER" ? "Liquidity Provider" : "User";
+    if (!confirm(`Change ${u.username}'s role to ${label}?`)) return;
+    await userAction(u.id, { action: "set_role", role });
+  }
+
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
@@ -352,13 +358,22 @@ export default function AdminUsersPage() {
                           Adjust balance
                         </button>
                         {u.role !== "ADMIN" && (
-                          <button
-                            onClick={() => suspendUser(u)}
-                            disabled={busyUser === u.id}
-                            style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0, fontSize: "0.8125rem" }}
-                          >
-                            Suspend
-                          </button>
+                          <>
+                            <button
+                              onClick={() => suspendUser(u)}
+                              disabled={busyUser === u.id}
+                              style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0, fontSize: "0.8125rem" }}
+                            >
+                              Suspend
+                            </button>
+                            <button
+                              onClick={() => changeUserRole(u, u.role === "LIQUIDITY_PROVIDER" ? "USER" : "LIQUIDITY_PROVIDER")}
+                              disabled={busyUser === u.id}
+                              style={{ color: "#a78bfa", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0, fontSize: "0.8125rem" }}
+                            >
+                              {u.role === "LIQUIDITY_PROVIDER" ? "Make USER" : "Make LP"}
+                            </button>
+                          </>
                         )}
                       </>
                     )}
