@@ -7,33 +7,11 @@ const isProd = process.env.NODE_ENV === "production";
 // default only affects local runs without the env var.
 const basePath = process.env.TRADING_BASE_PATH || "/trading";
 
-// Production CSP — strict by default. `'unsafe-inline'` is removed from
-// script-src; if you need third-party scripts later, generate a per-request
-// nonce in middleware and add it here. Inline `style={...}` attributes are
-// not affected by `style-src` (those are governed by `style-src-attr` which
-// we deliberately don't lock down to keep React inline styles working).
-const PROD_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self' ws: wss:",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
-
-// Dev CSP — keep `'unsafe-eval'` for Turbopack/HMR.
-const DEV_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self' ws: wss:",
-  "frame-ancestors 'none'",
-].join("; ");
+// Content-Security-Policy is set per-request in middleware.ts — it needs a fresh
+// nonce on every request so Next.js's own inline scripts can execute under a
+// strict policy (no 'unsafe-inline'). A static CSP here previously used
+// `script-src 'self'`, which blocked those inline scripts and produced blank
+// pages in production.
 
 const nextConfig: NextConfig = {
   basePath,
@@ -46,10 +24,6 @@ const nextConfig: NextConfig = {
       {
         key: "Permissions-Policy",
         value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
-      },
-      {
-        key: "Content-Security-Policy",
-        value: isProd ? PROD_CSP : DEV_CSP,
       },
     ];
 
