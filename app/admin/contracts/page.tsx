@@ -71,9 +71,25 @@ export default function AdminContractsPage() {
       <Link href="/admin" style={{ fontSize: "0.875rem", color: "#5a5a72", textDecoration: "none", display: "inline-block", marginBottom: "1rem" }}>
         ← Admin
       </Link>
-      <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#e4e4ed", marginBottom: "2rem" }}>
-        Contract Management
-      </h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginBottom: "2rem" }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#e4e4ed", margin: 0 }}>
+          Contract Management
+        </h1>
+        <Link
+          href="/markets/create"
+          style={{
+            padding: "0.5rem 1.25rem",
+            background: "#6366f1",
+            color: "#fff",
+            borderRadius: "0.375rem",
+            textDecoration: "none",
+            fontSize: "0.875rem",
+            fontWeight: 600,
+          }}
+        >
+          + New Contract
+        </Link>
+      </div>
 
 
 
