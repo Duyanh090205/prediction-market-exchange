@@ -14,8 +14,18 @@ export default function MarketsLiveRefresher() {
 
   useEffect(() => {
     const socket = getSocket();
-    const onCreated = () => router.refresh();
+    const onCreated = (payload: unknown) => {
+      // DEBUG: confirms the broadcast reached this client.
+      console.log("[markets] CONTRACT_CREATED received → refreshing", payload);
+      router.refresh();
+    };
     socket.on("CONTRACT_CREATED", onCreated);
+    // DEBUG: confirms this component mounted and subscribed.
+    console.log(
+      "[markets] listening for CONTRACT_CREATED (socket connected =",
+      socket.connected,
+      ")"
+    );
     return () => {
       socket.off("CONTRACT_CREATED", onCreated);
     };
