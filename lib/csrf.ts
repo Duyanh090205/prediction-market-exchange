@@ -32,9 +32,20 @@ export function validateCsrf(request: Request): {
     return { valid: true };
   }
 
-  const expectedOrigin = process.env.NEXTAUTH_URL;
-  if (!expectedOrigin) {
+  const rawExpected = process.env.NEXTAUTH_URL;
+  if (!rawExpected) {
     logError(method, new URL(request.url).pathname, new Error("NEXTAUTH_URL unset — refusing all state-changing requests"));
+    return { valid: false, error: "Server misconfiguration" };
+  }
+  // NEXTAUTH_URL may include a basePath (e.g. https://host/trading), but the
+  // browser Origin header is always bare (scheme://host). Compare origins only
+  // — mirrors how server.js derives corsOrigin. (Comparing the raw string
+  // rejected every same-origin POST when NEXTAUTH_URL carried the /trading path.)
+  let expectedOrigin: string;
+  try {
+    expectedOrigin = new URL(rawExpected).origin;
+  } catch {
+    logError(method, new URL(request.url).pathname, new Error("NEXTAUTH_URL is not a valid URL"));
     return { valid: false, error: "Server misconfiguration" };
   }
 
