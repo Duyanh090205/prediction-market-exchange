@@ -118,3 +118,26 @@ export function emitContractCreated(event: ContractCreatedEvent): void {
 
   io.emit("CONTRACT_CREATED", event);
 }
+
+export interface HintCreatedEvent {
+  contractId: number;
+  hint: {
+    id: number;
+    content: string;
+    linkUrl: string | null;
+    linkLabel: string | null;
+    createdAt: string;
+    author: { id: number; username: string; role: string };
+  };
+}
+
+/**
+ * Emit when a hint is posted on a contract. Sent to the contract room so anyone
+ * viewing that market sees the new hint appear without a reload.
+ */
+export function emitHintCreated(event: HintCreatedEvent): void {
+  const io = getIO();
+  if (!io) return;
+
+  io.to(`contract:${event.contractId}`).emit("HINT_CREATED", event);
+}

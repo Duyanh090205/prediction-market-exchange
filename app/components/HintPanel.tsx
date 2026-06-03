@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
+import { getSocket } from "@/lib/socket-client";
 
 interface HintAuthor {
   id: number;
@@ -344,6 +345,23 @@ export default function HintPanel({
   const handlePosted = (hint: Hint) => {
     setLocalHints((prev) => [...prev, hint]);
   };
+
+  // Live: when anyone posts a hint on this market, append it (deduped by id) so
+  // every viewer sees it without a reload. Relies on ContractRoom having joined
+  // the contract:<id> socket room.
+  useEffect(() => {
+    const socket = getSocket();
+    const onHint = (ev: { contractId: number; hint: Hint }) => {
+      if (ev.contractId !== contractId) return;
+      setLocalHints((prev) =>
+        prev.some((h) => h.id === ev.hint.id) ? prev : [...prev, ev.hint]
+      );
+    };
+    socket.on("HINT_CREATED", onHint);
+    return () => {
+      socket.off("HINT_CREATED", onHint);
+    };
+  }, [contractId]);
 
   return (
     <div>

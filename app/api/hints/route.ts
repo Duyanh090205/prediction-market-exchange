@@ -3,6 +3,7 @@ import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
+import { emitHintCreated } from "@/lib/socket-events";
 
 // POST /api/hints — LIQUIDITY_PROVIDER and ADMIN only
 export async function POST(request: NextRequest) {
@@ -69,6 +70,19 @@ export async function POST(request: NextRequest) {
       },
       include: {
         author: { select: { id: true, username: true, role: true } },
+      },
+    });
+
+    // Push to everyone viewing this market so the hint appears live.
+    emitHintCreated({
+      contractId: hint.contractId,
+      hint: {
+        id: hint.id,
+        content: hint.content,
+        linkUrl: hint.linkUrl,
+        linkLabel: hint.linkLabel,
+        createdAt: hint.createdAt.toISOString(),
+        author: hint.author,
       },
     });
 
