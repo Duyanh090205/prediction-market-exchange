@@ -12,13 +12,13 @@ import { emitPriceUpdated } from "./socket-events";
  * Compute the current market mid for a contract and record it if it moved.
  *
  * mid =
- *   - midpoint of best bid / best ask when both sides exist
- *   - else the last traded price (strike of the most recent trade)
+ *   - midpoint of best bid / best ask when both sides exist AND the book is not
+ *     crossed (best bid < best ask)
+ *   - else the last traded price (a crossed/locked book has no meaningful
+ *     spread mid; the most recent execution is the better signal)
+ *   - else the spread midpoint (crossed book, no trades yet — last resort)
  *   - else the single available side
  *   - else nothing to plot (skip)
- *
- * (Polymarket additionally falls back to last-trade when the spread is very
- * wide; left as a future tweak — the threshold is platform-specific.)
  */
 export async function recordPricePoint(contractId: number): Promise<void> {
   try {
@@ -42,10 +42,17 @@ export async function recordPricePoint(contractId: number): Promise<void> {
     const lastTrade = lastTradeRow?.strike ?? null;
 
     let mid: number | null = null;
-    if (bestBid != null && bestAsk != null) {
+    if (bestBid != null && bestAsk != null && bestBid < bestAsk) {
+      // Normal book — midpoint of the spread.
       mid = (bestBid + bestAsk) / 2;
     } else if (lastTrade != null) {
+      // Crossed/locked book (best bid ≥ best ask — quotes don't auto-match, so a
+      // crossing quote can sit in the book) or one side only: the spread midpoint
+      // is meaningless or unavailable, so use the last executed price instead.
       mid = lastTrade;
+    } else if (bestBid != null && bestAsk != null) {
+      // Crossed book with no trades yet — no better signal than the midpoint.
+      mid = (bestBid + bestAsk) / 2;
     } else if (bestBid != null) {
       mid = bestBid;
     } else if (bestAsk != null) {
