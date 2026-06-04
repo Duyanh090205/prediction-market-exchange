@@ -36,8 +36,20 @@ export async function GET(
       .reverse()
       .map((p) => ({ t: Math.floor(p.ts.getTime() / 1000), mid: p.mid }));
 
+    // Executed trades — plotted as dots at (time, strike) on top of the mid line.
+    const tradeRows = await prisma.trade.findMany({
+      where: { contractId },
+      orderBy: { createdAt: "asc" },
+      take: 1000,
+      select: { createdAt: true, strike: true },
+    });
+    const trades = tradeRows.map((t) => ({
+      t: Math.floor(t.createdAt.getTime() / 1000),
+      price: t.strike,
+    }));
+
     reqLog.finish(200, user.id);
-    return NextResponse.json({ points });
+    return NextResponse.json({ points, trades });
   } catch (error) {
     reqLog.error(error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
