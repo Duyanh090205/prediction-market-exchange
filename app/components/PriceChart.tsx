@@ -1,8 +1,10 @@
 "use client";
 
-// PriceChart — live market chart for a contract.
-//   • Mid line (stepped): the quoted market price (mid of best bid/ask) over time.
-//   • Trade dots: where actual trades executed (at their strike), overlaid.
+// PriceChart — live market chart for a contract. Two variants:
+//   • "mid" (default): the quoted market price (stepped mid of best bid/ask)
+//     as a line, with executed trades overlaid as dots at their strike.
+//   • "transaction": the executed-trade price itself — a stepped line that
+//     carries the last traded price forward, with a dot at each trade. No mid.
 // Loads history via REST, then updates live over Socket.IO (PRICE_UPDATED for the
 // mid line, TRADE_EXECUTED for new trade dots). uPlot renders (small canvas lib),
 // imported lazily inside the effect so it never runs during SSR.
@@ -12,20 +14,23 @@ import { useEffect, useRef } from "react";
 import { getSocket } from "@/lib/socket-client";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
+type Variant = "mid" | "transaction";
+
 interface Props {
   contractId: number;
   minPrice: number;
   maxPrice: number;
+  variant?: Variant;
 }
 
 type MidPoint = { t: number; mid: number };
 type TradePoint = { t: number; price: number };
 
-// Merge the mid timeline and the trades into uPlot's shared-x format:
-//   [xs, midYs, tradeYs]
+// "mid" variant — merge the mid timeline and the trades into uPlot's shared-x
+// format [xs, midYs, tradeYs]:
 //   - midYs carries the last mid forward at every x → a continuous stepped line.
 //   - tradeYs holds the strike only at trade times (null elsewhere) → dots only.
-function buildSeries(
+function buildMidSeries(
   mids: MidPoint[],
   trades: TradePoint[]
 ): [number[], (number | null)[], (number | null)[]] {
@@ -56,7 +61,21 @@ function buildSeries(
   return [xs, midYs, tradeYs];
 }
 
-export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
+// "transaction" variant — the executed-trade price as a stepped line plus a dot
+// at each trade, both drawn from the same y column: [xs, priceYs, priceYs].
+// Trades within the same second collapse to the last price so x stays unique
+// and strictly ascending (uPlot requires it).
+function buildTradeSeries(
+  trades: TradePoint[]
+): [number[], (number | null)[], (number | null)[]] {
+  const byT = new Map<number, number>();
+  for (const tr of trades) byT.set(tr.t, tr.price);
+  const xs = [...byT.keys()].sort((a, b) => a - b);
+  const ys = xs.map((t) => byT.get(t)!);
+  return [xs, ys, ys];
+}
+
+export default function PriceChart({ contractId, minPrice, maxPrice, variant = "mid" }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,6 +104,55 @@ export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
       }
       if (destroyed || !elRef.current) return;
 
+      const buildSeries = () =>
+        variant === "transaction"
+          ? buildTradeSeries(trades)
+          : buildMidSeries(mids, trades);
+
+      // Per-variant data series (axis/scale config is shared below).
+      const dataSeries =
+        variant === "transaction"
+          ? [
+              {},
+              {
+                label: "Last",
+                stroke: "#f59e0b",
+                width: 2,
+                // Last traded price holds flat then jumps — stepped is accurate.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                paths: (uPlot.paths.stepped as any)({ align: 1 }),
+                points: { show: false },
+              },
+              {
+                label: "Trade",
+                stroke: "#f59e0b",
+                // A dot at each executed trade, on top of the stepped line.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                paths: (() => null) as any,
+                points: { show: true, size: 8 },
+              },
+            ]
+          : [
+              {},
+              {
+                label: "Mid",
+                stroke: "#818cf8",
+                width: 2,
+                // Price holds flat then jumps at each change — stepped is accurate.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                paths: (uPlot.paths.stepped as any)({ align: 1 }),
+                points: { show: false },
+              },
+              {
+                label: "Trade",
+                stroke: "#f59e0b",
+                // Dots only (no connecting line) — each dot is one executed trade.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                paths: (() => null) as any,
+                points: { show: true, size: 8 },
+              },
+            ];
+
       const opts = {
         width: elRef.current.clientWidth || 600,
         height: 220,
@@ -107,26 +175,7 @@ export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
             },
           },
         },
-        series: [
-          {},
-          {
-            label: "Mid",
-            stroke: "#818cf8",
-            width: 2,
-            // Price holds flat then jumps at each change — stepped is accurate.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            paths: (uPlot.paths.stepped as any)({ align: 1 }),
-            points: { show: false },
-          },
-          {
-            label: "Trade",
-            stroke: "#f59e0b",
-            // Dots only (no connecting line) — each dot is one executed trade.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            paths: (() => null) as any,
-            points: { show: true, size: 8 },
-          },
-        ],
+        series: dataSeries,
         axes: [
           { stroke: "#5a5a72", grid: { stroke: "#1a1a2e", width: 1 }, ticks: { stroke: "#1a1a2e" } },
           { stroke: "#5a5a72", grid: { stroke: "#1a1a2e", width: 1 }, ticks: { stroke: "#1a1a2e" } },
@@ -134,9 +183,9 @@ export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const chart = new uPlot(opts as any, buildSeries(mids, trades) as any, elRef.current);
+      const chart = new uPlot(opts as any, buildSeries() as any, elRef.current);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const refresh = () => chart.setData(buildSeries(mids, trades) as any);
+      const refresh = () => chart.setData(buildSeries() as any);
 
       const onResize = () => {
         if (elRef.current) chart.setSize({ width: elRef.current.clientWidth, height: 220 });
@@ -146,6 +195,8 @@ export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
       const socket = getSocket();
       const onPrice = (ev: { contractId: number; ts: string; mid: number }) => {
         if (ev.contractId !== contractId) return;
+        // The transaction-price chart ignores the mid timeline entirely.
+        if (variant === "transaction") return;
         mids.push({ t: Math.floor(new Date(ev.ts).getTime() / 1000), mid: ev.mid });
         refresh();
       };
@@ -169,14 +220,23 @@ export default function PriceChart({ contractId, minPrice, maxPrice }: Props) {
       destroyed = true;
       cleanup();
     };
-  }, [contractId, minPrice, maxPrice]);
+  }, [contractId, minPrice, maxPrice, variant]);
 
   return (
     <div>
       <div ref={elRef} style={{ width: "100%" }} />
       <p style={{ margin: "0.4rem 0 0", fontSize: "0.6875rem", color: "#5a5a72" }}>
-        <span style={{ color: "#818cf8" }}>━ Mid</span> (giá tham chiếu bid/ask) ·{" "}
-        <span style={{ color: "#f59e0b" }}>● Giao dịch</span> (giá khớp lệnh thực tế)
+        {variant === "transaction" ? (
+          <>
+            <span style={{ color: "#f59e0b" }}>━ Last</span> (actual execution price, held until the next trade) ·{" "}
+            <span style={{ color: "#f59e0b" }}>● Trade</span>
+          </>
+        ) : (
+          <>
+            <span style={{ color: "#818cf8" }}>━ Mid</span> (bid/ask reference price) ·{" "}
+            <span style={{ color: "#f59e0b" }}>● Trade</span> (actual execution price)
+          </>
+        )}
       </p>
     </div>
   );

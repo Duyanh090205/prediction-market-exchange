@@ -168,7 +168,7 @@ export default async function PositionsPage() {
                     </div>
                   </div>
                   <p style={{ margin: "0.75rem 0 0", fontSize: "0.75rem", color: "#5a5a72" }}>
-                    Hòa (push): Settlement = {trade.strike} → 0
+                    Push (tie): Settlement = {trade.strike} → 0
                   </p>
                 </div>
               );

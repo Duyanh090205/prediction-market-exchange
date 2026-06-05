@@ -127,7 +127,7 @@ export default function AdminContractsPage() {
                 {settling === c.id ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                     <p style={{ margin: 0, fontSize: "0.8125rem", color: "#f59e0b" }}>
-                      ⚠ Sẽ chốt sổ <strong>{c._count.trades}</strong> giao dịch và <strong>không thể hoàn tác</strong>. Kiểm tra kỹ giá trị trước khi xác nhận.
+                      ⚠ This will settle <strong>{c._count.trades}</strong> trade(s) and <strong>cannot be undone</strong>. Double-check the value before confirming.
                     </p>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                       <input

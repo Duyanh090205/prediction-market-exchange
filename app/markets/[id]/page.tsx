@@ -134,12 +134,27 @@ export default async function MarketPage({
           </p>
         </div>
 
-        {/* Live price chart */}
-        <div style={{ marginBottom: "2rem", padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
-          <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Market Price
-          </p>
-          <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} />
+        {/* Live price charts — Mid vs Transaction price, side by side for comparison */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "1.5rem",
+            marginBottom: "2rem",
+          }}
+        >
+          <div style={{ padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
+            <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Market Price (Mid)
+            </p>
+            <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} variant="mid" />
+          </div>
+          <div style={{ padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
+            <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Transaction Price
+            </p>
+            <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} variant="transaction" />
+          </div>
         </div>
 
         {/* Two-column layout */}
