@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLabUser } from "@/lib/labAuth";
-import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
-import { calculateAvailableMargin } from "@/lib/margin";
-import { recordPricePoint } from "@/lib/price-history";
+import { postQuote } from "@/lib/quoteService";
 
-// POST /api/quotes — USER or LIQUIDITY_PROVIDER only (Admin blocked)
+// POST /api/quotes — USER or LIQUIDITY_PROVIDER only (Admin blocked).
+// Thin adapter: cookie auth + CSRF, then the shared postQuote() core (also used
+// by the Bearer-authenticated /api/v1/quotes).
 export async function POST(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
@@ -23,143 +23,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Admin cannot post quotes
-    if (user.role === "ADMIN") {
-      reqLog.finish(403, user.id);
-      return NextResponse.json(
-        { error: "Admin cannot post quotes" },
-        { status: 403 }
-      );
-    }
-
     const body = await request.json();
-    const { contractId, bid, ask, size } = body;
-    const isLP = user.role === "LIQUIDITY_PROVIDER";
 
-    if (contractId == null || size == null) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "contractId and size are required" },
-        { status: 400 }
-      );
-    }
-
-    // LPs must post both sides (they're market makers)
-    if (isLP && (bid == null || ask == null)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "Market makers must post both bid and ask" },
-        { status: 400 }
-      );
-    }
-
-    // Everyone else: at least one side required
-    if (bid == null && ask == null) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "Must provide at least a bid or an ask" },
-        { status: 400 }
-      );
-    }
-
-    if (bid != null && !Number.isInteger(bid)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json({ error: "bid must be an integer" }, { status: 400 });
-    }
-    if (ask != null && !Number.isInteger(ask)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
-    }
-    if (!Number.isInteger(size)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
-    }
-
-    if (bid != null && ask != null && bid >= ask) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "bid must be strictly less than ask" },
-        { status: 400 }
-      );
-    }
-
-    if (size < 1) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "size must be at least 1" },
-        { status: 400 }
-      );
-    }
-
-    // Verify contract exists, is OPEN, and bid/ask fall inside its price band.
-    const contract = await prisma.contract.findUnique({
-      where: { id: Number(contractId) },
-      select: { id: true, status: true, minPrice: true, maxPrice: true },
+    const res = await postQuote({
+      actorId: Number(user.id),
+      userRole: user.role,
+      body,
     });
 
-    if (!contract) {
-      reqLog.finish(404, user.id);
-      return NextResponse.json(
-        { error: "Contract not found" },
-        { status: 404 }
-      );
-    }
-    if (contract.status !== "OPEN") {
-      reqLog.finish(409, user.id);
-      return NextResponse.json(
-        { error: "Cannot post quotes on a settled contract" },
-        { status: 409 }
-      );
-    }
-    if (bid != null && (bid < contract.minPrice || bid > contract.maxPrice)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: `bid must be in [${contract.minPrice}, ${contract.maxPrice}]` },
-        { status: 400 }
-      );
-    }
-    if (ask != null && (ask < contract.minPrice || ask > contract.maxPrice)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: `ask must be in [${contract.minPrice}, ${contract.maxPrice}]` },
-        { status: 400 }
-      );
-    }
-
-    // Worst-case for the maker if their full quote size were taken on the
-    // adverse side: -size (per binary spread bet semantics). Reject the post
-    // if the maker doesn't have margin to back what they're advertising.
-    const makerId = Number(user.id);
-    const available = await calculateAvailableMargin(makerId);
-    if (available < size) {
-      reqLog.finish(422, user.id);
-      return NextResponse.json(
-        {
-          error: `Insufficient margin to back this quote: available ${available}, required ${size}`,
-        },
-        { status: 422 }
-      );
-    }
-
-    const quote = await prisma.quote.create({
-      data: {
-        contractId: Number(contractId),
-        makerId,
-        bid: bid ?? null,
-        ask: ask ?? null,
-        size,
-        status: "OPEN",
-      },
-      include: {
-        maker: { select: { id: true, username: true, role: true } },
-      },
-    });
-
-    // Append a price-chart point — a new quote can move the market mid.
-    await recordPricePoint(quote.contractId);
-
-    reqLog.finish(201, user.id, { contractId: quote.contractId });
-    return NextResponse.json({ quote }, { status: 201 });
+    reqLog.finish(res.status, user.id);
+    return res;
   } catch (error) {
     reqLog.error(error);
     return NextResponse.json(

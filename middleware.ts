@@ -11,6 +11,7 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const PUBLIC_PREFIXES = [
   "/api/auth",   // NextAuth internals (kept for signOut helper)
   "/api/health",
+  "/api/v1",     // Programmatic API: Bearer-token auth (getApiUser), no Lab cookie/SSO redirect
   "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
 

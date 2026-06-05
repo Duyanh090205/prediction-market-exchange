@@ -190,6 +190,38 @@ export async function recordRegisterAttempt(ip: string): Promise<void> {
   await store.recordFailure(`register:${ip}`, REGISTER_WINDOW_MS);
 }
 
+// ─── Programmatic API (/api/v1) — per-key sliding window ──────────────────────
+//
+// Keyed by ApiKey id so each bot key has its own budget (one user's runaway bot
+// can't starve another's). 240 requests / minute is generous for a friends'
+// game while still capping abuse; tune as needed.
+
+const API_LIMIT = 240;
+const API_WINDOW_MS = 60 * 1000;
+
+export async function checkApiRateLimit(identifier: string): Promise<RateLimitResult> {
+  return store.check(`api:${identifier}`, API_LIMIT, API_WINDOW_MS);
+}
+
+export async function recordApiRequest(identifier: string): Promise<void> {
+  await store.recordFailure(`api:${identifier}`, API_WINDOW_MS);
+}
+
+// ─── API-key creation — per user, so a logged-in account can't spam keys ──────
+
+const KEY_CREATE_LIMIT = 20;
+const KEY_CREATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+export async function checkKeyCreateRateLimit(
+  userId: string | number
+): Promise<RateLimitResult> {
+  return store.check(`keycreate:${userId}`, KEY_CREATE_LIMIT, KEY_CREATE_WINDOW_MS);
+}
+
+export async function recordKeyCreateAttempt(userId: string | number): Promise<void> {
+  await store.recordFailure(`keycreate:${userId}`, KEY_CREATE_WINDOW_MS);
+}
+
 // Back-compat shims (used by auth.ts) — typed without IP details so we
 // don't leak details into NextAuth's narrow contract.
 export const checkRateLimit = checkLoginRateLimit;

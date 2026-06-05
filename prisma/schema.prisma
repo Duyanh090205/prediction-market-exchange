@@ -77,8 +77,32 @@ model User {
   notifications        Notification[]
   balanceLedger        BalanceLedger[]
   passwordResetTokens  PasswordResetToken[]
+  apiKeys              ApiKey[]
 
   @@index([status])
+}
+
+// Bot/programmatic-access credential. A user mints an ApiKey, gets the full
+// secret ONCE (`tgk_<random>`), and a bot then authenticates with it via
+// `Authorization: Bearer tgk_...` against the /api/v1 namespace.
+//
+// Only the SHA-256 hash of the secret is stored — the plaintext is never
+// persisted. `keyPrefix` (first ~12 chars of the full key) is shown in the UI
+// to identify a key and is the O(1) lookup handle on each request.
+model ApiKey {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  label        String
+  keyPrefix    String    @unique
+  hashedSecret String
+  scopes       String[]
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model Contract {

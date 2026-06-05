@@ -74,6 +74,9 @@ export default async function Navbar() {
         <Link href="/positions" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
           Positions
         </Link>
+        <Link href="/settings/api-keys" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
+          API Keys
+        </Link>
         {role === "ADMIN" && (
           <Link href="/admin" style={{ fontSize: "0.875rem", color: "#f97316", textDecoration: "none" }}>
             Admin
