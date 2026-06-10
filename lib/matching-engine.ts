@@ -35,8 +35,26 @@ export interface FillResult {
   makerId: number;
   strike: number;
   size: number;
+  /** Remaining inventory on the side that was just hit. */
   quoteRemainingSize: number;
+  /** Post-fill per-side inventory (null = that side not offered). */
+  quoteBidSize: number | null;
+  quoteAskSize: number | null;
   quoteStatus: "OPEN" | "EXHAUSTED";
+}
+
+/**
+ * A quote stays OPEN while at least one priced side still has inventory;
+ * otherwise it is EXHAUSTED.
+ */
+function liveStatus(
+  bid: number | null,
+  ask: number | null,
+  bidSize: number,
+  askSize: number
+): "OPEN" | "EXHAUSTED" {
+  const live = (bid != null && bidSize > 0) || (ask != null && askSize > 0);
+  return live ? "OPEN" : "EXHAUSTED";
 }
 
 export interface MatchResult {
@@ -183,11 +201,12 @@ export async function executeLimitOrder(
       makerId: number;
       bid: number | null;
       ask: number | null;
-      size: number;
+      bidSize: number | null;
+      askSize: number | null;
       status: string;
     }>
   >`
-    SELECT id, "contractId", "makerId", bid, ask, size, status
+    SELECT id, "contractId", "makerId", bid, ask, "bidSize", "askSize", status
     FROM "Quote"
     WHERE id = ${input.quoteId}
     FOR UPDATE
@@ -200,9 +219,11 @@ export async function executeLimitOrder(
     throw new ContractMismatchError(input.contractId, quote.contractId);
 
   const strike = input.side === "OVER" ? quote.ask : quote.bid;
-  if (strike == null) throw new SideNotOfferedError(input.side);
+  // Inventory available on the side the taker wants to hit.
+  const sideInventory = input.side === "OVER" ? quote.askSize ?? 0 : quote.bidSize ?? 0;
+  if (strike == null || sideInventory <= 0) throw new SideNotOfferedError(input.side);
 
-  const requestedFill = Math.min(input.size, quote.size);
+  const requestedFill = Math.min(input.size, sideInventory);
 
   // Cap by both margin snapshots
   const takerSnap = await snapshotMargin(tx, takerId);
@@ -216,12 +237,15 @@ export async function executeLimitOrder(
     true,
     requestedFill
   );
-  // Maker takes the opposite side
-  const makerSide: OrderSide = input.side === "OVER" ? "UNDER" : "OVER";
+  // Model the maker's leg with the ACTUAL taker side (input.side) and
+  // isAsTaker=false — exactly how snapshotMargin records committed trades.
+  // pnlForUser negates for isAsTaker=false, so this yields the maker's true
+  // P&L. (Passing the maker's OWN side here flips the sign, making a risk-
+  // reducing hedge look like a doubling and falsely cancelling the quote.)
   const makerCap = maxFillByMargin(
     makerSnap,
     quote.contractId,
-    makerSide,
+    input.side,
     strike,
     false,
     requestedFill
@@ -255,11 +279,18 @@ export async function executeLimitOrder(
     },
   });
 
-  const remaining = quote.size - fillSize;
-  const quoteStatus = remaining <= 0 ? "EXHAUSTED" : "OPEN";
+  // Decrement only the side that was hit; the other side is untouched.
+  const curBidSize = quote.bidSize ?? 0;
+  const curAskSize = quote.askSize ?? 0;
+  const newBidSize = input.side === "UNDER" ? curBidSize - fillSize : curBidSize;
+  const newAskSize = input.side === "OVER" ? curAskSize - fillSize : curAskSize;
+  const remaining = Math.max(input.side === "OVER" ? newAskSize : newBidSize, 0);
+  const finalBidSize = quote.bid != null ? Math.max(newBidSize, 0) : null;
+  const finalAskSize = quote.ask != null ? Math.max(newAskSize, 0) : null;
+  const quoteStatus = liveStatus(quote.bid, quote.ask, newBidSize, newAskSize);
   await tx.quote.update({
     where: { id: quote.id },
-    data: { size: Math.max(remaining, 0), status: quoteStatus },
+    data: { bidSize: finalBidSize, askSize: finalAskSize, status: quoteStatus },
   });
 
   fills.push({
@@ -268,7 +299,9 @@ export async function executeLimitOrder(
     makerId: quote.makerId,
     strike,
     size: fillSize,
-    quoteRemainingSize: Math.max(remaining, 0),
+    quoteRemainingSize: remaining,
+    quoteBidSize: finalBidSize,
+    quoteAskSize: finalAskSize,
     quoteStatus,
   });
 
@@ -302,28 +335,33 @@ export async function executeMarketOrder(
     makerId: number;
     bid: number | null;
     ask: number | null;
-    size: number;
+    bidSize: number | null;
+    askSize: number | null;
     status: string;
   }>;
 
   if (input.side === "OVER") {
+    // Best (lowest) ask first; only quotes with live ask inventory.
     orderedQuotes = await tx.$queryRaw`
-      SELECT id, "contractId", "makerId", bid, ask, size, status
+      SELECT id, "contractId", "makerId", bid, ask, "bidSize", "askSize", status
       FROM "Quote"
       WHERE "contractId" = ${input.contractId}
         AND status = 'OPEN'
         AND ask IS NOT NULL
+        AND "askSize" > 0
         AND "makerId" != ${takerId}
       ORDER BY ask ASC, "createdAt" ASC
       FOR UPDATE
     `;
   } else {
+    // Best (highest) bid first; only quotes with live bid inventory.
     orderedQuotes = await tx.$queryRaw`
-      SELECT id, "contractId", "makerId", bid, ask, size, status
+      SELECT id, "contractId", "makerId", bid, ask, "bidSize", "askSize", status
       FROM "Quote"
       WHERE "contractId" = ${input.contractId}
         AND status = 'OPEN'
         AND bid IS NOT NULL
+        AND "bidSize" > 0
         AND "makerId" != ${takerId}
       ORDER BY bid DESC, "createdAt" ASC
       FOR UPDATE
@@ -332,7 +370,6 @@ export async function executeMarketOrder(
 
   // Snapshot taker once — mutate in-memory as fills accumulate
   const takerSnap = await snapshotMargin(tx, takerId);
-  const makerSide: OrderSide = input.side === "OVER" ? "UNDER" : "OVER";
   // Per-maker snapshot cache (a maker can own multiple quotes in the book)
   const makerSnaps = new Map<number, CachedMarginState>();
 
@@ -340,12 +377,14 @@ export async function executeMarketOrder(
     if (remainingSize <= 0) break;
 
     const strike = input.side === "OVER" ? quote.ask! : quote.bid!;
+    const sideInventory = input.side === "OVER" ? quote.askSize ?? 0 : quote.bidSize ?? 0;
+    if (sideInventory <= 0) continue;
 
     // Slippage protection
     if (input.side === "OVER" && strike > input.limitPrice) break;
     if (input.side === "UNDER" && strike < input.limitPrice) break;
 
-    const inventoryCap = Math.min(remainingSize, quote.size);
+    const inventoryCap = Math.min(remainingSize, sideInventory);
     const takerCap = maxFillByMargin(
       takerSnap,
       input.contractId,
@@ -368,7 +407,7 @@ export async function executeMarketOrder(
     const makerCap = maxFillByMargin(
       makerSnap,
       input.contractId,
-      makerSide,
+      input.side,
       strike,
       false,
       Math.min(inventoryCap, takerCap)
@@ -400,11 +439,18 @@ export async function executeMarketOrder(
       },
     });
 
-    const quoteRemaining = quote.size - fillSize;
-    const quoteStatus = quoteRemaining <= 0 ? "EXHAUSTED" : "OPEN";
+    // Decrement only the side that was swept; the other side is untouched.
+    const curBidSize = quote.bidSize ?? 0;
+    const curAskSize = quote.askSize ?? 0;
+    const newBidSize = input.side === "UNDER" ? curBidSize - fillSize : curBidSize;
+    const newAskSize = input.side === "OVER" ? curAskSize - fillSize : curAskSize;
+    const finalBidSize = quote.bid != null ? Math.max(newBidSize, 0) : null;
+    const finalAskSize = quote.ask != null ? Math.max(newAskSize, 0) : null;
+    const quoteRemaining = Math.max(input.side === "OVER" ? newAskSize : newBidSize, 0);
+    const quoteStatus = liveStatus(quote.bid, quote.ask, newBidSize, newAskSize);
     await tx.quote.update({
       where: { id: quote.id },
-      data: { size: Math.max(quoteRemaining, 0), status: quoteStatus },
+      data: { bidSize: finalBidSize, askSize: finalAskSize, status: quoteStatus },
     });
 
     await tx.notification.create({
@@ -420,13 +466,17 @@ export async function executeMarketOrder(
       makerId: quote.makerId,
       strike,
       size: fillSize,
-      quoteRemainingSize: Math.max(quoteRemaining, 0),
+      quoteRemainingSize: quoteRemaining,
+      quoteBidSize: finalBidSize,
+      quoteAskSize: finalAskSize,
       quoteStatus,
     });
 
-    // Update in-memory snapshots so subsequent caps reflect this fill
+    // Update in-memory snapshots so subsequent caps reflect this fill. The maker
+    // leg is recorded with the ACTUAL taker side (input.side) + isAsTaker=false,
+    // matching snapshotMargin's convention (see the maxFillByMargin note above).
     applyFillToSnapshot(takerSnap, input.contractId, input.side, strike, fillSize, true);
-    applyFillToSnapshot(makerSnap, input.contractId, makerSide, strike, fillSize, false);
+    applyFillToSnapshot(makerSnap, input.contractId, input.side, strike, fillSize, false);
 
     remainingSize -= fillSize;
   }

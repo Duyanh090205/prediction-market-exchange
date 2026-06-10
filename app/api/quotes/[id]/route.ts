@@ -5,6 +5,8 @@ import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { calculateAvailableMargin } from "@/lib/margin";
 import { logAdminAction, extractClientIp } from "@/lib/audit";
+import { emitQuoteUpdated } from "@/lib/socket-events";
+import { recordPricePoint } from "@/lib/price-history";
 
 // PATCH /api/quotes/[id] — maker only.
 // Re-checks price band and maker margin if size or strikes change.
@@ -73,7 +75,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { bid, ask, size } = body;
+    const { bid, ask } = body;
     const isLP = user.role === "LIQUIDITY_PROVIDER";
 
     const bidProvided = Object.prototype.hasOwnProperty.call(body, "bid");
@@ -81,7 +83,13 @@ export async function PATCH(
 
     const newBid: number | null = bidProvided ? (bid === null ? null : Number(bid)) : quote.bid;
     const newAsk: number | null = askProvided ? (ask === null ? null : Number(ask)) : quote.ask;
-    const newSize = size != null ? Number(size) : quote.size;
+
+    // Per-side sizes. Legacy `size` (single value) applies to both if present.
+    const legacySize = body.size != null ? Number(body.size) : null;
+    const newBidSize: number | null =
+      body.bidSize != null ? Number(body.bidSize) : legacySize ?? quote.bidSize;
+    const newAskSize: number | null =
+      body.askSize != null ? Number(body.askSize) : legacySize ?? quote.askSize;
 
     if (newBid != null && !Number.isInteger(newBid)) {
       reqLog.finish(400, user.id);
@@ -90,10 +98,6 @@ export async function PATCH(
     if (newAsk != null && !Number.isInteger(newAsk)) {
       reqLog.finish(400, user.id);
       return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
-    }
-    if (!Number.isInteger(newSize)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
     }
 
     if (isLP && (newBid == null || newAsk == null)) {
@@ -120,10 +124,18 @@ export async function PATCH(
       );
     }
 
-    if (newSize < 1) {
+    // Each kept side needs a positive-integer size.
+    if (newBid != null && (newBidSize == null || !Number.isInteger(newBidSize) || newBidSize < 1)) {
       reqLog.finish(400, user.id);
       return NextResponse.json(
-        { error: "size must be at least 1" },
+        { error: "bid size must be an integer >= 1" },
+        { status: 400 }
+      );
+    }
+    if (newAsk != null && (newAskSize == null || !Number.isInteger(newAskSize) || newAskSize < 1)) {
+      reqLog.finish(400, user.id);
+      return NextResponse.json(
+        { error: "ask size must be an integer >= 1" },
         { status: 400 }
       );
     }
@@ -144,17 +156,22 @@ export async function PATCH(
       );
     }
 
-    // Margin re-check when increasing size. The existing quote already
-    // reserves `quote.size` units of headroom; adding `delta` requires that
-    // many additional units of available margin.
-    const sizeDelta = newSize - quote.size;
-    if (sizeDelta > 0) {
+    // Margin re-check when increasing exposure. The existing quote already
+    // reserves max(bidSize, askSize) units of headroom; growing that requires
+    // the extra units of available margin.
+    const oldReserve = Math.max(quote.bidSize ?? 0, quote.askSize ?? 0);
+    const newReserve = Math.max(
+      newBid != null ? (newBidSize as number) : 0,
+      newAsk != null ? (newAskSize as number) : 0
+    );
+    const reserveDelta = newReserve - oldReserve;
+    if (reserveDelta > 0) {
       const available = await calculateAvailableMargin(quote.makerId);
-      if (available < sizeDelta) {
+      if (available < reserveDelta) {
         reqLog.finish(422, user.id);
         return NextResponse.json(
           {
-            error: `Insufficient margin to grow quote: available ${available}, additional ${sizeDelta} required`,
+            error: `Insufficient margin to grow quote: available ${available}, additional ${reserveDelta} required`,
           },
           { status: 422 }
         );
@@ -163,10 +180,25 @@ export async function PATCH(
 
     const updated = await prisma.quote.update({
       where: { id: quoteId },
-      data: { bid: newBid, ask: newAsk, size: newSize },
+      data: {
+        bid: newBid,
+        ask: newAsk,
+        bidSize: newBid != null ? newBidSize : null,
+        askSize: newAsk != null ? newAskSize : null,
+      },
       include: {
         maker: { select: { id: true, username: true, role: true } },
       },
+    });
+
+    // Realtime: editing a quote can move best bid/ask → update chart + book.
+    await recordPricePoint(updated.contractId);
+    emitQuoteUpdated({
+      quoteId: updated.id,
+      contractId: updated.contractId,
+      bidSize: updated.bidSize,
+      askSize: updated.askSize,
+      status: updated.status as "OPEN" | "EXHAUSTED" | "CANCELLED",
     });
 
     reqLog.finish(200, user.id);
@@ -262,6 +294,16 @@ export async function DELETE(
           tx
         );
       }
+    });
+
+    // Realtime: a cancelled quote leaves the book → update chart + book.
+    await recordPricePoint(quote.contractId);
+    emitQuoteUpdated({
+      quoteId,
+      contractId: quote.contractId,
+      bidSize: 0,
+      askSize: 0,
+      status: "CANCELLED",
     });
 
     reqLog.finish(200, user.id);

@@ -122,7 +122,12 @@ export default async function LeaderboardPage() {
                       borderBottom: "1px solid #1a1a2e",
                     }}
                   >
-                    {user.username}
+                    <Link
+                      href={`/players/${user.id}`}
+                      style={{ color: "#e4e4ed", textDecoration: "none", borderBottom: "1px dotted #3a3a5e" }}
+                    >
+                      {user.username}
+                    </Link>
                     {user.id === Number(currentUser.id) && (
                       <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#818cf8" }}>
                         (you)

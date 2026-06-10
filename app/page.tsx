@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 import ContractCard from "@/app/components/ContractCard";
 import MarketsLiveRefresher from "@/app/components/MarketsLiveRefresher";
+import ActivePositionsWidget from "@/app/components/ActivePositionsWidget";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -24,15 +25,16 @@ export default async function HomePage() {
     orderBy: { createdAt: "desc" },
   });
 
-  const isAdmin = user.role === "ADMIN";
-  const isLP = user.role === "LIQUIDITY_PROVIDER";
-  const canCreateMarket = isAdmin || isLP;
+  // Any authenticated user can create their own market.
+  const canCreateMarket = true;
 
   return (
     <>
       <Navbar />
       <MarketsLiveRefresher />
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "2rem 1.5rem" }}>
+        <ActivePositionsWidget userId={Number(user.id)} />
+
         {/* Header */}
         <div
           style={{

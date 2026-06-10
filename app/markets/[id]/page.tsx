@@ -11,6 +11,8 @@ import PostQuoteForm from "@/app/components/PostQuoteForm";
 import MarketOrderForm from "@/app/components/MarketOrderForm";
 import AdminTradeDelete from "@/app/components/AdminTradeDelete";
 import AdminDeleteMarketButton from "@/app/components/AdminDeleteMarketButton";
+import SettleMarketButton from "@/app/components/SettleMarketButton";
+import ChatPanel from "@/app/components/ChatPanel";
 import { sideColor } from "@/lib/theme";
 
 export default async function MarketPage({
@@ -49,6 +51,11 @@ export default async function MarketPage({
         },
         orderBy: { createdAt: "desc" },
       },
+      messages: {
+        include: { user: { select: { id: true, username: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      },
     },
   });
 
@@ -59,13 +66,27 @@ export default async function MarketPage({
   const isAdmin = currentUserRole === "ADMIN";
   const canPostQuote = !isAdmin;
 
-  // Separate LP quotes (left column) from other quotes (right column)
-  const lpQuotes = contract.quotes.filter(
-    (q) => q.maker.role === "LIQUIDITY_PROVIDER"
+  // Primary market = the creator's quotes (left column). Everyone else → right.
+  const creatorId = contract.createdById;
+  const isCreator = creatorId != null && currentUserId === creatorId;
+  const canSettle = (isAdmin || isCreator) && contract.status === "OPEN";
+  const creatorQuotes = contract.quotes.filter(
+    (q) => creatorId != null && q.maker.id === creatorId
   );
   const otherQuotes = contract.quotes.filter(
-    (q) => q.maker.role !== "LIQUIDITY_PROVIDER"
+    (q) => !(creatorId != null && q.maker.id === creatorId)
   );
+
+  // Chat history (newest-50 fetched desc → render oldest-first).
+  const chatMessages = [...contract.messages].reverse().map((m) => ({
+    id: m.id,
+    contractId: m.contractId,
+    recipientId: m.recipientId,
+    userId: m.userId,
+    username: m.user.username,
+    body: m.body,
+    createdAt: m.createdAt.toISOString(),
+  }));
 
   const sectionLabel: React.CSSProperties = {
     fontSize: "0.6875rem",
@@ -119,6 +140,13 @@ export default async function MarketPage({
             >
               {contract.status}
             </span>
+            {canSettle && (
+              <SettleMarketButton
+                contractId={contract.id}
+                minPrice={contract.minPrice}
+                maxPrice={contract.maxPrice}
+              />
+            )}
             {isAdmin && contract.status === "OPEN" && (
               <AdminDeleteMarketButton contractId={contract.id} />
             )}
@@ -134,21 +162,8 @@ export default async function MarketPage({
           </p>
         </div>
 
-        {/* Live price charts — Mid vs Transaction price, side by side for comparison */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: "1.5rem",
-            marginBottom: "2rem",
-          }}
-        >
-          <div style={{ padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
-            <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Market Price (Mid)
-            </p>
-            <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} variant="mid" />
-          </div>
+        {/* Live transaction-price chart */}
+        <div style={{ marginBottom: "2rem" }}>
           <div style={{ padding: "1rem 1.25rem", background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
             <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
               Transaction Price
@@ -170,7 +185,7 @@ export default async function MarketPage({
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <p style={sectionLabel}>Primary Market</p>
 
-            {lpQuotes.length === 0 ? (
+            {creatorQuotes.length === 0 ? (
               <div
                 style={{
                   padding: "2rem",
@@ -185,11 +200,10 @@ export default async function MarketPage({
                 No primary market quotes yet.
               </div>
             ) : (
-              lpQuotes.map((q) => (
+              creatorQuotes.map((q) => (
                 <QuoteCard
                   key={q.id}
                   quote={q}
-                  contractId={contractId}
                   currentUserId={currentUserId}
                   currentUserRole={currentUserRole}
                   variant="prominent"
@@ -240,7 +254,6 @@ export default async function MarketPage({
               <QuoteCard
                 key={q.id}
                 quote={q}
-                contractId={contractId}
                 currentUserId={currentUserId}
                 currentUserRole={currentUserRole}
                 variant="regular"
@@ -252,6 +265,16 @@ export default async function MarketPage({
                 contractId={contractId}
                 minPrice={contract.minPrice}
                 maxPrice={contract.maxPrice}
+                mode="market"
+              />
+            )}
+
+            {canPostQuote && contract.status === "OPEN" && (
+              <MarketOrderForm
+                contractId={contractId}
+                minPrice={contract.minPrice}
+                maxPrice={contract.maxPrice}
+                mode="sweep"
               />
             )}
 
@@ -264,6 +287,11 @@ export default async function MarketPage({
               />
             )}
           </div>
+        </div>
+
+        {/* ── Market Chat ── */}
+        <div style={{ marginBottom: "2rem" }}>
+          <ChatPanel contractId={contractId} currentUserId={currentUserId} initialMessages={chatMessages} />
         </div>
 
         {/* ── Confirmed Trades ── */}
@@ -303,7 +331,7 @@ export default async function MarketPage({
               >
                 <thead>
                   <tr>
-                    {["Taker", "Side", "Strike", "Size", "Maker", "Time", ...(isAdmin ? [""] : [])].map((h) => (
+                    {["Over", "Under", "Strike", "Size", "Time", ...(isAdmin ? [""] : [])].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -311,7 +339,12 @@ export default async function MarketPage({
                           padding: "0.5rem 0.75rem",
                           fontSize: "0.6875rem",
                           fontWeight: 700,
-                          color: "#5a5a72",
+                          color:
+                            h === "Over"
+                              ? sideColor("OVER").fg
+                              : h === "Under"
+                                ? sideColor("UNDER").fg
+                                : "#5a5a72",
                           textTransform: "uppercase",
                           letterSpacing: "0.06em",
                           borderBottom: "1px solid #1a1a2e",
@@ -323,75 +356,77 @@ export default async function MarketPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {contract.trades.map((t) => (
-                    <tr key={t.id}>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          color: "#e4e4ed",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {t.taker.username}
-                      </td>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          fontWeight: 700,
-                          color: sideColor(t.takerSide as "OVER" | "UNDER").fg,
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {t.takerSide}
-                      </td>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          color: "#818cf8",
-                          fontWeight: 600,
-                          fontVariantNumeric: "tabular-nums",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {t.strike}
-                      </td>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          color: "#e4e4ed",
-                          fontVariantNumeric: "tabular-nums",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {t.size}
-                      </td>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          color: "#8888a0",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {t.maker.username}
-                      </td>
-                      <td
-                        style={{
-                          padding: "0.625rem 0.75rem",
-                          color: "#5a5a72",
-                          fontSize: "0.75rem",
-                          whiteSpace: "nowrap",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {new Date(t.createdAt).toLocaleString()}
-                      </td>
-                      {isAdmin && (
-                        <td style={{ padding: "0.625rem 0.75rem", borderBottom: "1px solid #1a1a2e" }}>
-                          <AdminTradeDelete tradeId={t.id} />
+                  {contract.trades.map((t) => {
+                    // Each trade has two legs. Taker side is recorded; the maker
+                    // holds the opposite side. Show both explicitly.
+                    const overUser = t.takerSide === "OVER" ? t.taker : t.maker;
+                    const underUser = t.takerSide === "OVER" ? t.maker : t.taker;
+                    return (
+                      <tr key={t.id}>
+                        <td
+                          style={{
+                            padding: "0.625rem 0.75rem",
+                            fontWeight: 600,
+                            color: sideColor("OVER").fg,
+                            borderBottom: "1px solid #1a1a2e",
+                          }}
+                        >
+                          <Link href={`/players/${overUser.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
+                            {overUser.username}
+                          </Link>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td
+                          style={{
+                            padding: "0.625rem 0.75rem",
+                            fontWeight: 600,
+                            color: sideColor("UNDER").fg,
+                            borderBottom: "1px solid #1a1a2e",
+                          }}
+                        >
+                          <Link href={`/players/${underUser.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
+                            {underUser.username}
+                          </Link>
+                        </td>
+                        <td
+                          style={{
+                            padding: "0.625rem 0.75rem",
+                            color: "#818cf8",
+                            fontWeight: 600,
+                            fontVariantNumeric: "tabular-nums",
+                            borderBottom: "1px solid #1a1a2e",
+                          }}
+                        >
+                          {t.strike}
+                        </td>
+                        <td
+                          style={{
+                            padding: "0.625rem 0.75rem",
+                            color: "#e4e4ed",
+                            fontVariantNumeric: "tabular-nums",
+                            borderBottom: "1px solid #1a1a2e",
+                          }}
+                        >
+                          {t.size}
+                        </td>
+                        <td
+                          style={{
+                            padding: "0.625rem 0.75rem",
+                            color: "#5a5a72",
+                            fontSize: "0.75rem",
+                            whiteSpace: "nowrap",
+                            borderBottom: "1px solid #1a1a2e",
+                          }}
+                        >
+                          {new Date(t.createdAt).toLocaleString()}
+                        </td>
+                        {isAdmin && (
+                          <td style={{ padding: "0.625rem 0.75rem", borderBottom: "1px solid #1a1a2e" }}>
+                            <AdminTradeDelete tradeId={t.id} />
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

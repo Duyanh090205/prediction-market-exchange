@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateAvailableMargin } from "@/lib/margin";
 import { recordPricePoint } from "@/lib/price-history";
+import { emitQuoteUpdated } from "@/lib/socket-events";
 
 export interface PostQuoteParams {
   actorId: number;
@@ -34,12 +35,22 @@ export async function postQuote({
     );
   }
 
-  const { contractId, bid, ask, size } = body;
+  const { contractId, bid, ask } = body;
   const isLP = userRole === "LIQUIDITY_PROVIDER";
 
-  if (contractId == null || size == null) {
+  // Per-side inventory. Backward-compat: a single legacy `size` applies to
+  // whichever side(s) the maker is posting.
+  let bidSize: number | null = body.bidSize != null ? Number(body.bidSize) : null;
+  let askSize: number | null = body.askSize != null ? Number(body.askSize) : null;
+  if (bidSize == null && askSize == null && body.size != null) {
+    const legacy = Number(body.size);
+    if (bid != null) bidSize = legacy;
+    if (ask != null) askSize = legacy;
+  }
+
+  if (contractId == null) {
     return NextResponse.json(
-      { error: "contractId and size are required" },
+      { error: "contractId is required" },
       { status: 400 }
     );
   }
@@ -66,20 +77,24 @@ export async function postQuote({
   if (ask != null && !Number.isInteger(ask)) {
     return NextResponse.json({ error: "ask must be an integer" }, { status: 400 });
   }
-  if (!Number.isInteger(size)) {
-    return NextResponse.json({ error: "size must be an integer" }, { status: 400 });
+
+  // Each posted side needs its own positive-integer size.
+  if (bid != null && (bidSize == null || !Number.isInteger(bidSize) || bidSize < 1)) {
+    return NextResponse.json(
+      { error: "bid size must be an integer >= 1" },
+      { status: 400 }
+    );
+  }
+  if (ask != null && (askSize == null || !Number.isInteger(askSize) || askSize < 1)) {
+    return NextResponse.json(
+      { error: "ask size must be an integer >= 1" },
+      { status: 400 }
+    );
   }
 
   if (bid != null && ask != null && bid >= ask) {
     return NextResponse.json(
       { error: "bid must be strictly less than ask" },
-      { status: 400 }
-    );
-  }
-
-  if (size < 1) {
-    return NextResponse.json(
-      { error: "size must be at least 1" },
       { status: 400 }
     );
   }
@@ -112,14 +127,18 @@ export async function postQuote({
     );
   }
 
-  // Worst-case for the maker if their full quote size were taken on the
-  // adverse side: -size (per binary spread bet semantics). Reject the post
-  // if the maker doesn't have margin to back what they're advertising.
+  // Worst-case for the maker is being fully hit on whichever side is larger
+  // (-max(bidSize, askSize) per binary spread bet semantics — the two sides
+  // partially hedge if both are hit). Reject if the maker can't back it.
+  const reserve = Math.max(
+    bid != null ? (bidSize as number) : 0,
+    ask != null ? (askSize as number) : 0
+  );
   const available = await calculateAvailableMargin(actorId);
-  if (available < size) {
+  if (available < reserve) {
     return NextResponse.json(
       {
-        error: `Insufficient margin to back this quote: available ${available}, required ${size}`,
+        error: `Insufficient margin to back this quote: available ${available}, required ${reserve}`,
       },
       { status: 422 }
     );
@@ -131,7 +150,8 @@ export async function postQuote({
       makerId: actorId,
       bid: bid ?? null,
       ask: ask ?? null,
-      size,
+      bidSize: bid != null ? bidSize : null,
+      askSize: ask != null ? askSize : null,
       status: "OPEN",
     },
     include: {
@@ -141,6 +161,15 @@ export async function postQuote({
 
   // Append a price-chart point — a new quote can move the market mid.
   await recordPricePoint(quote.contractId);
+
+  // Realtime: tell everyone watching this market that a new quote is live.
+  emitQuoteUpdated({
+    quoteId: quote.id,
+    contractId: quote.contractId,
+    bidSize: quote.bidSize,
+    askSize: quote.askSize,
+    status: "OPEN",
+  });
 
   return NextResponse.json({ quote }, { status: 201 });
 }

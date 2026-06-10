@@ -208,10 +208,10 @@ export async function PATCH(
         reqLog.finish(400, user.id);
         return NextResponse.json({ error: "delta must be a non-zero integer" }, { status: 400 });
       }
-      if (reason.length < 5) {
+      if (reason.length === 0) {
         reqLog.finish(400, user.id);
         return NextResponse.json(
-          { error: "reason is required (min 5 chars) — explains the manual adjustment" },
+          { error: "reason is required — explains the manual adjustment" },
           { status: 400 }
         );
       }

@@ -8,7 +8,8 @@ interface QuoteActionsProps {
   quoteId: number;
   currentBid: number | null;
   currentAsk: number | null;
-  currentSize: number;
+  currentBidSize: number | null;
+  currentAskSize: number | null;
   makerRole?: string;
 }
 
@@ -16,7 +17,8 @@ export default function QuoteActions({
   quoteId,
   currentBid,
   currentAsk,
-  currentSize,
+  currentBidSize,
+  currentAskSize,
   makerRole,
 }: QuoteActionsProps) {
   const router = useRouter();
@@ -24,7 +26,8 @@ export default function QuoteActions({
   const [editing, setEditing] = useState(false);
   const [bid, setBid] = useState(currentBid == null ? "" : String(currentBid));
   const [ask, setAsk] = useState(currentAsk == null ? "" : String(currentAsk));
-  const [size, setSize] = useState(String(currentSize));
+  const [bidSize, setBidSize] = useState(currentBidSize == null ? "" : String(currentBidSize));
+  const [askSize, setAskSize] = useState(currentAskSize == null ? "" : String(currentAskSize));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -36,7 +39,8 @@ export default function QuoteActions({
     const askStr = ask.trim();
     const bidNum = bidStr === "" ? null : parseInt(bidStr, 10);
     const askNum = askStr === "" ? null : parseInt(askStr, 10);
-    const sizeNum = parseInt(size, 10);
+    const bidSizeNum = bidSize.trim() === "" ? null : parseInt(bidSize, 10);
+    const askSizeNum = askSize.trim() === "" ? null : parseInt(askSize, 10);
 
     if (bidStr !== "" && (bidNum === null || isNaN(bidNum))) {
       setError("Bid must be an integer.");
@@ -44,10 +48,6 @@ export default function QuoteActions({
     }
     if (askStr !== "" && (askNum === null || isNaN(askNum))) {
       setError("Ask must be an integer.");
-      return;
-    }
-    if (isNaN(sizeNum)) {
-      setError("Size must be an integer.");
       return;
     }
     if (isLP && (bidNum === null || askNum === null)) {
@@ -62,8 +62,12 @@ export default function QuoteActions({
       setError("Bid must be strictly less than ask.");
       return;
     }
-    if (sizeNum < 1) {
-      setError("Size must be at least 1.");
+    if (bidNum !== null && (bidSizeNum === null || isNaN(bidSizeNum) || bidSizeNum < 1)) {
+      setError("Bid size must be at least 1.");
+      return;
+    }
+    if (askNum !== null && (askSizeNum === null || isNaN(askSizeNum) || askSizeNum < 1)) {
+      setError("Ask size must be at least 1.");
       return;
     }
 
@@ -72,7 +76,12 @@ export default function QuoteActions({
       const res = await fetch(withTradingBasePath(`/api/quotes/${quoteId}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bid: bidNum, ask: askNum, size: sizeNum }),
+        body: JSON.stringify({
+          bid: bidNum,
+          ask: askNum,
+          bidSize: bidNum !== null ? bidSizeNum : null,
+          askSize: askNum !== null ? askSizeNum : null,
+        }),
       });
 
       const data = await res.json();
@@ -160,15 +169,26 @@ export default function QuoteActions({
               style={{ ...inputStyle, marginLeft: "0.25rem", borderColor: "rgba(239,68,68,0.3)" }}
             />
           </label>
-          <label style={{ fontSize: "0.75rem", color: "#8888a0", fontWeight: 600 }}>
-            Size
+          <label style={{ fontSize: "0.75rem", color: "#22c55e", fontWeight: 600 }}>
+            Bid Size
             <input
               type="number"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              required
+              value={bidSize}
+              onChange={(e) => setBidSize(e.target.value)}
+              required={bid.trim() !== ""}
               min={1}
-              style={{ ...inputStyle, marginLeft: "0.25rem" }}
+              style={{ ...inputStyle, marginLeft: "0.25rem", borderColor: "rgba(34,197,94,0.3)" }}
+            />
+          </label>
+          <label style={{ fontSize: "0.75rem", color: "#ef4444", fontWeight: 600 }}>
+            Ask Size
+            <input
+              type="number"
+              value={askSize}
+              onChange={(e) => setAskSize(e.target.value)}
+              required={ask.trim() !== ""}
+              min={1}
+              style={{ ...inputStyle, marginLeft: "0.25rem", borderColor: "rgba(239,68,68,0.3)" }}
             />
           </label>
         </div>
@@ -197,7 +217,8 @@ export default function QuoteActions({
               setError("");
               setBid(currentBid == null ? "" : String(currentBid));
               setAsk(currentAsk == null ? "" : String(currentAsk));
-              setSize(String(currentSize));
+              setBidSize(currentBidSize == null ? "" : String(currentBidSize));
+              setAskSize(currentAskSize == null ? "" : String(currentAskSize));
             }}
             style={{
               padding: "0.375rem 0.75rem",

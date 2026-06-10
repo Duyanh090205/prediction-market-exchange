@@ -262,7 +262,8 @@ export async function placeOrder({
     emitQuoteUpdated({
       quoteId: fill.quoteId,
       contractId: orderInput.contractId,
-      newSize: fill.quoteRemainingSize,
+      bidSize: fill.quoteBidSize,
+      askSize: fill.quoteAskSize,
       status: fill.quoteStatus,
     });
   }
@@ -270,7 +271,8 @@ export async function placeOrder({
     emitQuoteUpdated({
       quoteId: cancelledId,
       contractId: orderInput.contractId,
-      newSize: 0,
+      bidSize: 0,
+      askSize: 0,
       status: "CANCELLED",
     });
   }

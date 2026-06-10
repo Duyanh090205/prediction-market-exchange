@@ -71,6 +71,9 @@ export default async function Navbar() {
         <Link href="/leaderboard" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
           Leaderboard
         </Link>
+        <Link href="/chat" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
+          Chat
+        </Link>
         <Link href="/positions" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
           Positions
         </Link>

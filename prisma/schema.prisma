@@ -71,6 +71,7 @@ model User {
 
   // Relations
   quotes              Quote[]
+  createdContracts     Contract[]           @relation("CreatedContracts")
   tradesAsTaker        Trade[]              @relation("TakerTrades")
   tradesAsMaker        Trade[]              @relation("MakerTrades")
   hints                Hint[]
@@ -78,6 +79,8 @@ model User {
   balanceLedger        BalanceLedger[]
   passwordResetTokens  PasswordResetToken[]
   apiKeys              ApiKey[]
+  messages             Message[]            @relation("SentMessages")
+  receivedMessages     Message[]            @relation("ReceivedMessages")
 
   @@index([status])
 }
@@ -113,14 +116,42 @@ model Contract {
   minPrice        Int            @default(0)
   maxPrice        Int            @default(100)
   settlementValue Int?
+  // The user who created this market. They are its primary market maker and
+  // may settle it (alongside any admin). Null for legacy/admin-seeded markets.
+  createdById     Int?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   // Relations
+  creator     User?        @relation("CreatedContracts", fields: [createdById], references: [id])
   quotes      Quote[]
   trades      Trade[]
   hints       Hint[]
   pricePoints PricePoint[]
+  messages    Message[]
+
+  @@index([createdById])
+}
+
+// In-app chat. Routing:
+//   - contractId set, recipientId null → that market's chat
+//   - contractId null, recipientId null → global lobby
+//   - contractId null, recipientId set → direct message (1-1) between
+//     userId (sender) and recipientId
+model Message {
+  id          Int      @id @default(autoincrement())
+  contractId  Int?
+  userId      Int
+  recipientId Int?
+  body        String
+  createdAt   DateTime @default(now())
+
+  user      User      @relation("SentMessages", fields: [userId], references: [id])
+  recipient User?     @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  contract  Contract? @relation(fields: [contractId], references: [id])
+
+  @@index([contractId, createdAt])
+  @@index([recipientId])
 }
 
 // Time series of the market mid-price per contract — powers the live price chart.
@@ -145,7 +176,10 @@ model Quote {
   makerId    Int
   bid        Int?
   ask        Int?
-  size       Int
+  // Per-side inventory. A side is "live" iff its price is non-null AND its
+  // size > 0. Hitting the ask only decrements askSize; the bid is untouched.
+  bidSize    Int?
+  askSize    Int?
   status     QuoteStatus @default(OPEN)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt

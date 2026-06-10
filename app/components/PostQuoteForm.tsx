@@ -22,7 +22,8 @@ export default function PostQuoteForm({
 
   const [bid, setBid] = useState("");
   const [ask, setAsk] = useState("");
-  const [size, setSize] = useState("");
+  const [bidSize, setBidSize] = useState("");
+  const [askSize, setAskSize] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
@@ -35,7 +36,8 @@ export default function PostQuoteForm({
     const askStr = ask.trim();
     const bidNum = bidStr === "" ? null : parseInt(bidStr, 10);
     const askNum = askStr === "" ? null : parseInt(askStr, 10);
-    const sizeNum = parseInt(size, 10);
+    const bidSizeNum = bidSize.trim() === "" ? null : parseInt(bidSize, 10);
+    const askSizeNum = askSize.trim() === "" ? null : parseInt(askSize, 10);
 
     if (bidStr !== "" && (bidNum === null || isNaN(bidNum))) {
       setError("Bid must be an integer.");
@@ -43,10 +45,6 @@ export default function PostQuoteForm({
     }
     if (askStr !== "" && (askNum === null || isNaN(askNum))) {
       setError("Ask must be an integer.");
-      return;
-    }
-    if (isNaN(sizeNum)) {
-      setError("Size must be an integer.");
       return;
     }
     if (isLP && (bidNum === null || askNum === null)) {
@@ -61,8 +59,12 @@ export default function PostQuoteForm({
       setError("Bid must be strictly less than ask.");
       return;
     }
-    if (sizeNum < 1) {
-      setError("Size must be at least 1.");
+    if (bidNum !== null && (bidSizeNum === null || isNaN(bidSizeNum) || bidSizeNum < 1)) {
+      setError("Bid size must be at least 1.");
+      return;
+    }
+    if (askNum !== null && (askSizeNum === null || isNaN(askSizeNum) || askSizeNum < 1)) {
+      setError("Ask size must be at least 1.");
       return;
     }
     if (bidNum !== null && (bidNum < minPrice || bidNum > maxPrice)) {
@@ -83,7 +85,8 @@ export default function PostQuoteForm({
           contractId,
           bid: bidNum,
           ask: askNum,
-          size: sizeNum,
+          bidSize: bidNum !== null ? bidSizeNum : null,
+          askSize: askNum !== null ? askSizeNum : null,
         }),
       });
 
@@ -95,7 +98,8 @@ export default function PostQuoteForm({
 
       setBid("");
       setAsk("");
-      setSize("");
+      setBidSize("");
+      setAskSize("");
       setCollapsed(true);
       router.refresh();
     } catch {
@@ -217,6 +221,7 @@ export default function PostQuoteForm({
       )}
 
       <form onSubmit={handleSubmit}>
+        {/* Row 1: prices */}
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
           <div style={{ flex: 1 }}>
             <label
@@ -264,11 +269,15 @@ export default function PostQuoteForm({
               style={{ ...inputStyle, borderColor: "rgba(239,68,68,0.3)" }}
             />
           </div>
+        </div>
+
+        {/* Row 2: per-side sizes */}
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
           <div style={{ flex: 1 }}>
             <label
               style={{
                 fontSize: "0.6875rem",
-                color: "#8888a0",
+                color: "#22c55e",
                 display: "block",
                 marginBottom: "0.25rem",
                 fontWeight: 600,
@@ -276,16 +285,40 @@ export default function PostQuoteForm({
                 letterSpacing: "0.05em",
               }}
             >
-              Size
+              Bid Size
             </label>
             <input
               type="number"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              required
+              value={bidSize}
+              onChange={(e) => setBidSize(e.target.value)}
+              required={bid.trim() !== ""}
               min={1}
               placeholder="25"
-              style={inputStyle}
+              style={{ ...inputStyle, borderColor: "rgba(34,197,94,0.3)" }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label
+              style={{
+                fontSize: "0.6875rem",
+                color: "#ef4444",
+                display: "block",
+                marginBottom: "0.25rem",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Ask Size
+            </label>
+            <input
+              type="number"
+              value={askSize}
+              onChange={(e) => setAskSize(e.target.value)}
+              required={ask.trim() !== ""}
+              min={1}
+              placeholder="25"
+              style={{ ...inputStyle, borderColor: "rgba(239,68,68,0.3)" }}
             />
           </div>
         </div>

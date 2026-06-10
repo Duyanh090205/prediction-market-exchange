@@ -47,7 +47,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/contracts — Admin or Liquidity Provider
+// POST /api/contracts — any authenticated user can create their own market.
+// The creator becomes its primary market maker and may settle it.
 export async function POST(request: NextRequest) {
   const reqLog = createRequestLogger(request);
 
@@ -62,14 +63,6 @@ export async function POST(request: NextRequest) {
     if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (user.role !== "ADMIN" && user.role !== "LIQUIDITY_PROVIDER") {
-      reqLog.finish(403, user.id);
-      return NextResponse.json(
-        { error: "Only Admin or Liquidity Provider can create contracts" },
-        { status: 403 }
-      );
     }
 
     const body = await request.json();
@@ -118,6 +111,7 @@ export async function POST(request: NextRequest) {
         minPrice: minP,
         maxPrice: maxP,
         status: "OPEN",
+        createdById: Number(user.id),
       },
     });
 

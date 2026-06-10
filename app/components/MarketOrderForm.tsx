@@ -9,14 +9,22 @@ interface MarketOrderFormProps {
   contractId: number;
   minPrice: number;
   maxPrice: number;
+  /**
+   * "market" = fill at the best available price (no slippage cap).
+   * "sweep"  = walk the book up to a user-set limit price (slippage control).
+   * Both always consume best price first (engine: price-time priority).
+   */
+  mode?: "market" | "sweep";
 }
 
 export default function MarketOrderForm({
   contractId,
   minPrice,
   maxPrice,
+  mode = "sweep",
 }: MarketOrderFormProps) {
   const router = useRouter();
+  const isMarket = mode === "market";
   const [side, setSide] = useState<"OVER" | "UNDER">("OVER");
   const [size, setSize] = useState<string>("");
   const [limitPrice, setLimitPrice] = useState<string>("");
@@ -28,13 +36,19 @@ export default function MarketOrderForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const sizeNum = parseInt(size, 10);
-    const limitNum = parseInt(limitPrice, 10);
+    // Market mode: accept any price up to the band edge → fills purely at the
+    // best available levels. Sweep mode: user-supplied slippage cap.
+    const limitNum = isMarket
+      ? side === "OVER"
+        ? maxPrice
+        : minPrice
+      : parseInt(limitPrice, 10);
 
     if (!sizeNum || sizeNum < 1) {
       setError("Size must be at least 1");
       return;
     }
-    if (isNaN(limitNum) || limitNum < minPrice || limitNum > maxPrice) {
+    if (!isMarket && (isNaN(limitNum) || limitNum < minPrice || limitNum > maxPrice)) {
       setError(`Limit price must be between ${minPrice} and ${maxPrice}`);
       return;
     }
@@ -90,7 +104,7 @@ export default function MarketOrderForm({
     >
       <h3
         style={{
-          margin: "0 0 1rem",
+          margin: "0 0 0.25rem",
           fontSize: "0.875rem",
           fontWeight: 700,
           color: "#e4e4ed",
@@ -98,8 +112,13 @@ export default function MarketOrderForm({
           letterSpacing: "0.05em",
         }}
       >
-        Sweep Market
+        {isMarket ? "Market Order" : "Sweep Market"}
       </h3>
+      <p style={{ margin: "0 0 1rem", fontSize: "0.75rem", color: "#5a5a72" }}>
+        {isMarket
+          ? "Fills your size at the best available price."
+          : "Walks the book up to your limit price (best price first)."}
+      </p>
 
       <form onSubmit={submit}>
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
@@ -164,31 +183,33 @@ export default function MarketOrderForm({
               }}
             />
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: "block", fontSize: "0.75rem", color: "#8888a0", marginBottom: "0.25rem" }}>
-              Limit Price ({minPrice}–{maxPrice})
-            </label>
-            <input
-              type="number"
-              value={limitPrice}
-              onChange={(e) => setLimitPrice(e.target.value)}
-              placeholder={`e.g. ${Math.floor((minPrice + maxPrice) / 2)}`}
-              min={minPrice}
-              max={maxPrice}
-              required
-              disabled={submitting}
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                background: "#0a0a0f",
-                border: "1px solid #2a2a3e",
-                borderRadius: "0.375rem",
-                color: "#e4e4ed",
-                fontSize: "0.875rem",
-                boxSizing: "border-box"
-              }}
-            />
-          </div>
+          {!isMarket && (
+            <div style={{ flex: 1 }}>
+              <label style={{ display: "block", fontSize: "0.75rem", color: "#8888a0", marginBottom: "0.25rem" }}>
+                Limit Price ({minPrice}–{maxPrice})
+              </label>
+              <input
+                type="number"
+                value={limitPrice}
+                onChange={(e) => setLimitPrice(e.target.value)}
+                placeholder={`e.g. ${Math.floor((minPrice + maxPrice) / 2)}`}
+                min={minPrice}
+                max={maxPrice}
+                required
+                disabled={submitting}
+                style={{
+                  width: "100%",
+                  padding: "0.5rem 0.75rem",
+                  background: "#0a0a0f",
+                  border: "1px solid #2a2a3e",
+                  borderRadius: "0.375rem",
+                  color: "#e4e4ed",
+                  fontSize: "0.875rem",
+                  boxSizing: "border-box"
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <button
@@ -207,7 +228,13 @@ export default function MarketOrderForm({
             opacity: submitting ? 0.7 : 1,
           }}
         >
-          {submitting ? "Sweeping Book..." : "Execute Market Order"}
+          {isMarket
+            ? submitting
+              ? "Filling..."
+              : "Buy at Best Price"
+            : submitting
+              ? "Sweeping Book..."
+              : "Execute Sweep"}
         </button>
 
         {error && (

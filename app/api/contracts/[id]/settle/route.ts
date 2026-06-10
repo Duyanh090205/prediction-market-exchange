@@ -39,11 +39,6 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (user.role !== "ADMIN") {
-      reqLog.finish(403, user.id);
-      return NextResponse.json({ error: "Admin only" }, { status: 403 });
-    }
-
     const { id } = await params;
     const contractId = Number(id);
     if (isNaN(contractId)) {
@@ -66,11 +61,19 @@ export async function POST(
     // P&L is computed against an impossible outcome (e.g. 500 on a 0–100 band).
     const bandContract = await prisma.contract.findUnique({
       where: { id: contractId },
-      select: { minPrice: true, maxPrice: true },
+      select: { minPrice: true, maxPrice: true, createdById: true },
     });
     if (!bandContract) {
       reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Contract not found" }, { status: 404 });
+    }
+    // Only an admin or the market's creator may settle it.
+    if (user.role !== "ADMIN" && Number(user.id) !== bandContract.createdById) {
+      reqLog.finish(403, user.id);
+      return NextResponse.json(
+        { error: "Only an admin or the market creator can settle this market" },
+        { status: 403 }
+      );
     }
     if (
       settlementValue < bandContract.minPrice ||

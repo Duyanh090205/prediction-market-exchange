@@ -34,7 +34,8 @@ export interface TradeExecutedEvent {
 export interface QuoteUpdatedEvent {
   quoteId: number;
   contractId: number;
-  newSize: number;
+  bidSize: number | null;
+  askSize: number | null;
   status: "OPEN" | "EXHAUSTED" | "CANCELLED";
 }
 
@@ -140,4 +141,33 @@ export function emitHintCreated(event: HintCreatedEvent): void {
   if (!io) return;
 
   io.to(`contract:${event.contractId}`).emit("HINT_CREATED", event);
+}
+
+export interface MessageCreatedEvent {
+  id: number;
+  contractId: number | null; // null = lobby or DM
+  recipientId: number | null; // set = direct message to this user
+  userId: number;
+  username: string;
+  body: string;
+  createdAt: string; // ISO timestamp
+}
+
+/**
+ * Emit a chat message. Routing mirrors the Message model:
+ *   - DM (recipientId set)   → both participants' user rooms
+ *   - market (contractId set) → that contract's room
+ *   - lobby (both null)       → broadcast to everyone connected
+ */
+export function emitMessageCreated(event: MessageCreatedEvent): void {
+  const io = getIO();
+  if (!io) return;
+
+  if (event.recipientId != null) {
+    io.to(`user:${event.userId}`).to(`user:${event.recipientId}`).emit("MESSAGE_CREATED", event);
+  } else if (event.contractId != null) {
+    io.to(`contract:${event.contractId}`).emit("MESSAGE_CREATED", event);
+  } else {
+    io.emit("MESSAGE_CREATED", event);
+  }
 }

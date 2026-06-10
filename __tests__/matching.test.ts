@@ -45,6 +45,8 @@ let mockQuotes: Array<{
   bid: number | null;
   ask: number | null;
   size: number;
+  bidSize: number | null;
+  askSize: number | null;
   status: string;
   createdAt: Date;
 }> = [];
@@ -130,7 +132,8 @@ function createMockTx() {
         // Also update the mock quote store so subsequent reads see the change
         const idx = mockQuotes.findIndex((q) => q.id === where.id);
         if (idx >= 0) {
-          if (data.size != null) mockQuotes[idx].size = data.size as number;
+          if (data.bidSize !== undefined) mockQuotes[idx].bidSize = data.bidSize as number | null;
+          if (data.askSize !== undefined) mockQuotes[idx].askSize = data.askSize as number | null;
           if (data.status != null) mockQuotes[idx].status = data.status as string;
         }
         return { id: where.id, ...data };
@@ -148,14 +151,21 @@ function createMockTx() {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function makeQuote(overrides: Partial<(typeof mockQuotes)[0]> & { id: number; makerId: number }) {
-  return {
+  const base = {
     contractId: 1,
-    bid: null,
-    ask: null,
+    bid: null as number | null,
+    ask: null as number | null,
     size: 50,
     status: "OPEN",
     createdAt: new Date("2026-01-01T00:00:00Z"),
     ...overrides,
+  };
+  // Per-side inventory: explicit override wins, else the convenience `size`
+  // applies to whichever side(s) the quote prices.
+  return {
+    ...base,
+    bidSize: base.bid != null ? overrides.bidSize ?? base.size : null,
+    askSize: base.ask != null ? overrides.askSize ?? base.size : null,
   };
 }
 
@@ -197,9 +207,9 @@ describe("executeLimitOrder", () => {
       quoteStatus: "OPEN",
     });
 
-    // Quote should be decremented, not exhausted
+    // Ask side should be decremented, not exhausted
     const quoteUpdate = updatedQuotes.find((u) => u.id === 10);
-    expect(quoteUpdate?.data.size).toBe(25);
+    expect(quoteUpdate?.data.askSize).toBe(25);
     expect(quoteUpdate?.data.status).toBe("OPEN");
   });
 
@@ -628,9 +638,95 @@ describe("executeMarketOrder", () => {
     const q10Update = updatedQuotes.find((u) => u.id === 10);
     expect(q10Update?.data.status).toBe("EXHAUSTED");
 
-    // Second quote should still be OPEN with decremented size
+    // Second quote should still be OPEN with decremented ask size
     const q11Update = updatedQuotes.find((u) => u.id === 11);
     expect(q11Update?.data.status).toBe("OPEN");
-    expect(q11Update?.data.size).toBe(35);
+    expect(q11Update?.data.askSize).toBe(35);
+  });
+});
+
+// ─── PER-SIDE INVENTORY (#4) ─────────────────────────────────────────────────
+
+describe("per-side inventory (#4)", () => {
+  test("LIMIT: hitting the ask leaves the bid side untouched, quote stays OPEN", async () => {
+    mockQuotes = [
+      makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 10 }),
+    ];
+    const tx = createMockTx();
+
+    const result = await executeLimitOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 10,
+      type: "LIMIT",
+      quoteId: 10,
+    });
+
+    expect(result.fills[0]).toMatchObject({ strike: 240, size: 10 });
+
+    const upd = updatedQuotes.find((u) => u.id === 10);
+    expect(upd?.data.askSize).toBe(0); // ask consumed
+    expect(upd?.data.bidSize).toBe(25); // bid untouched
+    expect(upd?.data.status).toBe("OPEN"); // still live on the bid side
+  });
+
+  test("LIMIT: hitting the bid leaves the ask side untouched", async () => {
+    mockQuotes = [
+      makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 10 }),
+    ];
+    const tx = createMockTx();
+
+    const result = await executeLimitOrder(tx, 1, {
+      contractId: 1,
+      side: "UNDER",
+      size: 25,
+      type: "LIMIT",
+      quoteId: 10,
+    });
+
+    expect(result.fills[0]).toMatchObject({ strike: 200, size: 25 });
+
+    const upd = updatedQuotes.find((u) => u.id === 10);
+    expect(upd?.data.bidSize).toBe(0); // bid consumed
+    expect(upd?.data.askSize).toBe(10); // ask untouched
+    expect(upd?.data.status).toBe("OPEN");
+  });
+
+  test("LIMIT: a priced side with zero inventory is not tradeable", async () => {
+    mockQuotes = [
+      makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 0 }),
+    ];
+    const tx = createMockTx();
+
+    await expect(
+      executeLimitOrder(tx, 1, {
+        contractId: 1,
+        side: "OVER", // ask priced but askSize is 0
+        size: 5,
+        type: "LIMIT",
+        quoteId: 10,
+      })
+    ).rejects.toThrow(SideNotOfferedError);
+  });
+
+  test("MARKET: sweep only consumes ask inventory; bid side preserved", async () => {
+    mockQuotes = [
+      makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 10 }),
+    ];
+    const tx = createMockTx();
+
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 10,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(10);
+    const upd = updatedQuotes.find((u) => u.id === 10);
+    expect(upd?.data.askSize).toBe(0);
+    expect(upd?.data.bidSize).toBe(25);
+    expect(upd?.data.status).toBe("OPEN");
   });
 });

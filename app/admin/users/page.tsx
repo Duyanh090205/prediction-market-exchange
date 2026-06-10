@@ -118,8 +118,8 @@ export default function AdminUsersPage() {
     const delta = parseInt(deltaStr, 10);
     if (isNaN(delta) || delta === 0) return;
     const reason = prompt("Reason for the manual adjustment (visible in audit log + user notification):");
-    if (!reason || reason.trim().length < 5) {
-      setActionMsg((m) => ({ ...m, [u.id]: "Reason required (min 5 chars)" }));
+    if (!reason || reason.trim().length === 0) {
+      setActionMsg((m) => ({ ...m, [u.id]: "Reason required" }));
       return;
     }
     await userAction(u.id, { action: "adjust_balance", delta, reason: reason.trim() });

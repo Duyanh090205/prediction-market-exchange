@@ -8,10 +8,7 @@ export default async function CreateMarketServerPage() {
   const user = await getLabUser();
   if (!user) redirect("/");
 
-  const role = user.role;
-  if (role !== "ADMIN" && role !== "LIQUIDITY_PROVIDER") {
-    redirect("/");
-  }
+  // Any authenticated user can create their own market.
 
   return (
     <>

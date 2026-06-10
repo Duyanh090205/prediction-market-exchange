@@ -71,6 +71,7 @@ export default async function PositionsPage() {
             {openTrades.map((trade) => {
               const isAsTaker = trade.takerId === userId;
               const side = isAsTaker ? trade.takerSide : trade.takerSide === "OVER" ? "UNDER" : "OVER";
+              const oppSide = side === "OVER" ? "UNDER" : "OVER";
               const winScenario =
                 side === "OVER"
                   ? `Settlement > ${trade.strike} → +${trade.size}`
@@ -112,7 +113,7 @@ export default async function PositionsPage() {
                         {trade.contract.title}
                       </Link>
                       <p style={{ margin: "0.25rem 0 0", fontSize: "0.8125rem", color: "#5a5a72" }}>
-                        vs {counterparty.username} · {isAsTaker ? "Taker" : "Maker"}
+                        vs {counterparty.username} ({oppSide}) · {isAsTaker ? "Taker" : "Maker"}
                       </p>
                     </div>
                     {(() => {
@@ -200,6 +201,7 @@ export default async function PositionsPage() {
             {settledTrades.map((trade) => {
               const isAsTaker = trade.takerId === userId;
               const side = isAsTaker ? trade.takerSide : trade.takerSide === "OVER" ? "UNDER" : "OVER";
+              const oppSide = side === "OVER" ? "UNDER" : "OVER";
               const counterparty = isAsTaker ? trade.maker : trade.taker;
               const pnl = (isAsTaker ? trade.takerPnl : trade.makerPnl) ?? 0;
               const pnlColor = pnl > 0 ? "#10b981" : pnl < 0 ? "#ef4444" : "#8888a0";
@@ -228,7 +230,7 @@ export default async function PositionsPage() {
                     <p style={{ margin: "0.2rem 0 0", fontSize: "0.75rem", color: "#5a5a72" }}>
                       <span style={{ color: c.fg, fontWeight: 700 }}>{side} {trade.strike}</span>
                       {" · "}size {trade.size}
-                      {" · vs "}{counterparty.username}
+                      {" · vs "}{counterparty.username} ({oppSide})
                       {trade.contract.settlementValue != null && <> · result {trade.contract.settlementValue}</>}
                     </p>
                   </div>

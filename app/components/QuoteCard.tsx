@@ -1,4 +1,3 @@
-import LimitOrderForm from "./LimitOrderForm";
 import QuoteActions from "./QuoteActions";
 import AdminQuoteDelete from "./AdminQuoteDelete";
 
@@ -12,14 +11,14 @@ interface Quote {
   id: number;
   bid: number | null;
   ask: number | null;
-  size: number;
+  bidSize: number | null;
+  askSize: number | null;
   status: string;
   maker: QuoteMaker;
 }
 
 interface QuoteCardProps {
   quote: Quote;
-  contractId: number;
   currentUserId: number;
   currentUserRole: string;
   variant: "prominent" | "regular";
@@ -27,16 +26,11 @@ interface QuoteCardProps {
 
 export default function QuoteCard({
   quote,
-  contractId,
   currentUserId,
   currentUserRole,
   variant,
 }: QuoteCardProps) {
   const isOwner = quote.maker.id === currentUserId;
-  const canTake =
-    !isOwner &&
-    currentUserRole !== "ADMIN" &&
-    quote.status === "OPEN";
 
   if (variant === "prominent") {
     return (
@@ -114,6 +108,11 @@ export default function QuoteCard({
             >
               {quote.bid ?? "—"}
             </p>
+            {quote.bid != null && (
+              <p style={{ margin: "0.25rem 0 0", fontSize: "0.75rem", color: "#5a5a72" }}>
+                × {quote.bidSize ?? 0}
+              </p>
+            )}
           </div>
 
           <div
@@ -148,44 +147,22 @@ export default function QuoteCard({
             >
               {quote.ask ?? "—"}
             </p>
+            {quote.ask != null && (
+              <p style={{ margin: "0.25rem 0 0", fontSize: "0.75rem", color: "#5a5a72" }}>
+                × {quote.askSize ?? 0}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Size */}
-        <div
-          style={{
-            textAlign: "center",
-            padding: "0.5rem",
-            background: "rgba(99,102,241,0.06)",
-            borderRadius: "0.375rem",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <span style={{ fontSize: "0.8125rem", color: "#8888a0" }}>
-            Max size:{" "}
-            <strong style={{ color: "#818cf8", fontSize: "1rem" }}>
-              {quote.size}
-            </strong>{" "}
-            coins
-          </span>
-        </div>
-
         {/* Actions */}
-        {canTake && (
-          <LimitOrderForm
-            quoteId={quote.id}
-            contractId={contractId}
-            quoteSize={quote.size}
-            bid={quote.bid}
-            ask={quote.ask}
-          />
-        )}
         {isOwner && (
           <QuoteActions
             quoteId={quote.id}
             currentBid={quote.bid}
             currentAsk={quote.ask}
-            currentSize={quote.size}
+            currentBidSize={quote.bidSize}
+            currentAskSize={quote.askSize}
             makerRole={quote.maker.role}
           />
         )}
@@ -220,7 +197,7 @@ export default function QuoteCard({
         </p>
       </div>
 
-      {/* Bid / Ask / Size inline */}
+      {/* Bid / Ask with per-side size inline */}
       <div style={{ display: "flex", gap: "1rem", alignItems: "baseline", marginBottom: "0.75rem" }}>
         <span>
           <span
@@ -238,6 +215,11 @@ export default function QuoteCard({
           <span style={{ fontSize: "1.125rem", fontWeight: 700, color: "#22c55e" }}>
             {quote.bid ?? "—"}
           </span>
+          {quote.bid != null && (
+            <span style={{ fontSize: "0.75rem", color: "#5a5a72", marginLeft: "0.35rem" }}>
+              × {quote.bidSize ?? 0}
+            </span>
+          )}
         </span>
         <span style={{ color: "#2a2a3e" }}>/</span>
         <span>
@@ -256,29 +238,22 @@ export default function QuoteCard({
           <span style={{ fontSize: "1.125rem", fontWeight: 700, color: "#ef4444" }}>
             {quote.ask ?? "—"}
           </span>
-        </span>
-        <span style={{ marginLeft: "auto", fontSize: "0.8125rem", color: "#5a5a72" }}>
-          ×{" "}
-          <strong style={{ color: "#818cf8" }}>{quote.size}</strong>
+          {quote.ask != null && (
+            <span style={{ fontSize: "0.75rem", color: "#5a5a72", marginLeft: "0.35rem" }}>
+              × {quote.askSize ?? 0}
+            </span>
+          )}
         </span>
       </div>
 
       {/* Actions */}
-      {canTake && (
-        <LimitOrderForm
-          quoteId={quote.id}
-          contractId={contractId}
-          quoteSize={quote.size}
-          bid={quote.bid}
-          ask={quote.ask}
-        />
-      )}
       {isOwner && (
         <QuoteActions
           quoteId={quote.id}
           currentBid={quote.bid}
           currentAsk={quote.ask}
-          currentSize={quote.size}
+          currentBidSize={quote.bidSize}
+          currentAskSize={quote.askSize}
           makerRole={quote.maker.role}
         />
       )}

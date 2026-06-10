@@ -24,10 +24,12 @@ export default function PortfolioLive() {
   useEffect(() => {
     const socket = getSocket();
 
-    // L3 fix: debounce rapid refresh calls into a single 300ms window
+    // Debounce rapid refresh calls into a single window. Each refresh re-runs
+    // the page's server components (incl. Navbar margin), so coalescing bursts
+    // of trade/quote events keeps active markets from feeling laggy.
     const debouncedRefresh = () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => router.refresh(), 300);
+      refreshTimer.current = setTimeout(() => router.refresh(), 500);
     };
 
     socket.on("TRADE_EXECUTED", debouncedRefresh);

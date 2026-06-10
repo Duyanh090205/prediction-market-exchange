@@ -24,14 +24,18 @@ export async function recordPricePoint(contractId: number): Promise<void> {
   try {
     const openQuotes = await prisma.quote.findMany({
       where: { contractId, status: "OPEN" },
-      select: { bid: true, ask: true },
+      select: { bid: true, ask: true, bidSize: true, askSize: true },
     });
 
     let bestBid: number | null = null;
     let bestAsk: number | null = null;
     for (const q of openQuotes) {
-      if (q.bid != null && (bestBid === null || q.bid > bestBid)) bestBid = q.bid;
-      if (q.ask != null && (bestAsk === null || q.ask < bestAsk)) bestAsk = q.ask;
+      // Only count a side that still has inventory — after per-side sizing a
+      // quote can be OPEN on one side while the other is depleted.
+      if (q.bid != null && (q.bidSize ?? 0) > 0 && (bestBid === null || q.bid > bestBid))
+        bestBid = q.bid;
+      if (q.ask != null && (q.askSize ?? 0) > 0 && (bestAsk === null || q.ask < bestAsk))
+        bestAsk = q.ask;
     }
 
     const lastTradeRow = await prisma.trade.findFirst({
