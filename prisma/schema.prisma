@@ -244,6 +244,9 @@ model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int
   message   String   @db.Text
+  // Optional in-app destination (e.g. "/players/12" for a DM). Clickable in the
+  // notification panel; null = plain text notification.
+  linkUrl   String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 

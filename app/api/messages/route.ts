@@ -88,6 +88,18 @@ export async function POST(request: NextRequest) {
 
     emitMessageCreated(payload);
 
+    // Notify the recipient of a new DM so they know to check it. Open channels
+    // (lobby/market) don't notify — that would be too noisy.
+    if (recipientId != null) {
+      await prisma.notification.create({
+        data: {
+          userId: recipientId,
+          message: `💬 New message from ${msg.user.username}`,
+          linkUrl: `/players/${msg.userId}`,
+        },
+      });
+    }
+
     reqLog.finish(201, user.id);
     return NextResponse.json({ message: payload }, { status: 201 });
   } catch (error) {

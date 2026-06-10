@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 interface NotificationItem {
   id: number;
   message: string;
+  linkUrl: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -179,23 +181,34 @@ export default function NotificationPanel() {
             </p>
           )}
 
-          {data?.notifications.map((n) => (
-            <div
-              key={n.id}
-              style={{
-                padding: "0.75rem 1rem",
-                borderBottom: "1px solid #1a1a2e",
-                background: n.isRead ? "transparent" : "rgba(99,102,241,0.04)",
-              }}
-            >
-              <p style={{ margin: "0 0 0.25rem", fontSize: "0.8125rem", color: "#e4e4ed" }}>
-                {n.message}
-              </p>
-              <p style={{ margin: 0, fontSize: "0.6875rem", color: "#5a5a72" }}>
-                {new Date(n.createdAt).toLocaleString()}
-              </p>
-            </div>
-          ))}
+          {data?.notifications.map((n) => {
+            const cardStyle: React.CSSProperties = {
+              display: "block",
+              padding: "0.75rem 1rem",
+              borderBottom: "1px solid #1a1a2e",
+              background: n.isRead ? "transparent" : "rgba(99,102,241,0.04)",
+              textDecoration: "none",
+            };
+            const inner = (
+              <>
+                <p style={{ margin: "0 0 0.25rem", fontSize: "0.8125rem", color: "#e4e4ed" }}>
+                  {n.message}
+                </p>
+                <p style={{ margin: 0, fontSize: "0.6875rem", color: "#5a5a72" }}>
+                  {new Date(n.createdAt).toLocaleString()}
+                </p>
+              </>
+            );
+            return n.linkUrl ? (
+              <Link key={n.id} href={n.linkUrl} onClick={() => setOpen(false)} style={{ ...cardStyle, cursor: "pointer" }}>
+                {inner}
+              </Link>
+            ) : (
+              <div key={n.id} style={cardStyle}>
+                {inner}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

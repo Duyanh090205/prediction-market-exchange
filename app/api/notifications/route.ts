@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           message: true,
+          linkUrl: true,
           isRead: true,
           createdAt: true,
         },
