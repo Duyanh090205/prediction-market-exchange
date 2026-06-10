@@ -331,7 +331,7 @@ export default async function MarketPage({
               >
                 <thead>
                   <tr>
-                    {["Over", "Under", "Strike", "Size", "Time", ...(isAdmin ? [""] : [])].map((h) => (
+                    {["Player", "Side", "Strike", "Size", "Time", ...(isAdmin ? [""] : [])].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -339,12 +339,7 @@ export default async function MarketPage({
                           padding: "0.5rem 0.75rem",
                           fontSize: "0.6875rem",
                           fontWeight: 700,
-                          color:
-                            h === "Over"
-                              ? sideColor("OVER").fg
-                              : h === "Under"
-                                ? sideColor("UNDER").fg
-                                : "#5a5a72",
+                          color: "#5a5a72",
                           textTransform: "uppercase",
                           letterSpacing: "0.06em",
                           borderBottom: "1px solid #1a1a2e",
@@ -357,75 +352,41 @@ export default async function MarketPage({
                 </thead>
                 <tbody>
                   {contract.trades.map((t) => {
-                    // Each trade has two legs. Taker side is recorded; the maker
-                    // holds the opposite side. Show both explicitly.
+                    // Render each trade as TWO separate legs (rows): the OVER
+                    // player and the UNDER player. Taker side is recorded; the
+                    // maker holds the opposite side.
                     const overUser = t.takerSide === "OVER" ? t.taker : t.maker;
                     const underUser = t.takerSide === "OVER" ? t.maker : t.taker;
-                    return (
-                      <tr key={t.id}>
-                        <td
-                          style={{
-                            padding: "0.625rem 0.75rem",
-                            fontWeight: 600,
-                            color: sideColor("OVER").fg,
-                            borderBottom: "1px solid #1a1a2e",
-                          }}
-                        >
-                          <Link href={`/players/${overUser.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
-                            {overUser.username}
-                          </Link>
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.625rem 0.75rem",
-                            fontWeight: 600,
-                            color: sideColor("UNDER").fg,
-                            borderBottom: "1px solid #1a1a2e",
-                          }}
-                        >
-                          <Link href={`/players/${underUser.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
-                            {underUser.username}
-                          </Link>
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.625rem 0.75rem",
-                            color: "#818cf8",
-                            fontWeight: 600,
-                            fontVariantNumeric: "tabular-nums",
-                            borderBottom: "1px solid #1a1a2e",
-                          }}
-                        >
-                          {t.strike}
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.625rem 0.75rem",
-                            color: "#e4e4ed",
-                            fontVariantNumeric: "tabular-nums",
-                            borderBottom: "1px solid #1a1a2e",
-                          }}
-                        >
-                          {t.size}
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.625rem 0.75rem",
-                            color: "#5a5a72",
-                            fontSize: "0.75rem",
-                            whiteSpace: "nowrap",
-                            borderBottom: "1px solid #1a1a2e",
-                          }}
-                        >
-                          {new Date(t.createdAt).toLocaleString()}
-                        </td>
-                        {isAdmin && (
-                          <td style={{ padding: "0.625rem 0.75rem", borderBottom: "1px solid #1a1a2e" }}>
-                            <AdminTradeDelete tradeId={t.id} />
+                    const legs = [
+                      { user: overUser, side: "OVER" as const },
+                      { user: underUser, side: "UNDER" as const },
+                    ];
+                    return legs.map((leg, i) => {
+                      const c = sideColor(leg.side);
+                      const first = i === 0;
+                      // Divider only after the second leg, so a trade's two rows
+                      // read as one grouped pair.
+                      const bb = first ? "none" : "1px solid #1a1a2e";
+                      const cell: React.CSSProperties = { padding: "0.5rem 0.75rem", borderBottom: bb };
+                      return (
+                        <tr key={`${t.id}-${leg.side}`}>
+                          <td style={{ ...cell, fontWeight: 600, color: c.fg }}>
+                            <Link href={`/players/${leg.user.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
+                              {leg.user.username}
+                            </Link>
                           </td>
-                        )}
-                      </tr>
-                    );
+                          <td style={{ ...cell, fontWeight: 700, color: c.fg }}>{leg.side}</td>
+                          <td style={{ ...cell, color: "#818cf8", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{t.strike}</td>
+                          <td style={{ ...cell, color: "#e4e4ed", fontVariantNumeric: "tabular-nums" }}>{t.size}</td>
+                          <td style={{ ...cell, color: "#5a5a72", fontSize: "0.75rem", whiteSpace: "nowrap" }}>
+                            {first ? new Date(t.createdAt).toLocaleString() : ""}
+                          </td>
+                          {isAdmin && (
+                            <td style={cell}>{first ? <AdminTradeDelete tradeId={t.id} /> : null}</td>
+                          )}
+                        </tr>
+                      );
+                    });
                   })}
                 </tbody>
               </table>
