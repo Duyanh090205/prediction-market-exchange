@@ -239,9 +239,14 @@ export default function MarketOrderForm({
           </p>
         )}
         {warning && (
-          <p style={{ marginTop: "0.75rem", fontSize: "0.8125rem", color: "#f59e0b" }}>
-            {warning}
-          </p>
+          <>
+            <p style={{ marginTop: "0.75rem", fontSize: "0.8125rem", color: "#f59e0b" }}>
+              {warning}
+            </p>
+            <p style={{ marginTop: "0.25rem", fontSize: "0.75rem", color: "#5a5a72" }}>
+              Note: you can&apos;t trade with yourself — your own quotes and resting orders are skipped.
+            </p>
+          </>
         )}
         {success && (
           <p style={{ marginTop: "0.75rem", fontSize: "0.8125rem", color: "#22c55e" }}>

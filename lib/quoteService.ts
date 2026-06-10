@@ -29,14 +29,6 @@ export async function postQuote({
   userRole,
   body,
 }: PostQuoteParams): Promise<NextResponse> {
-  // Admin cannot post quotes
-  if (userRole === "ADMIN") {
-    return NextResponse.json(
-      { error: "Admin cannot post quotes" },
-      { status: 403 }
-    );
-  }
-
   const { contractId, bid, ask } = body;
   const isLP = userRole === "LIQUIDITY_PROVIDER";
 

@@ -65,7 +65,8 @@ export default async function MarketPage({
   const currentUserId = Number(user.id);
   const currentUserRole = user.role;
   const isAdmin = currentUserRole === "ADMIN";
-  const canPostQuote = !isAdmin;
+  // Everyone — including admins — can quote and trade.
+  const canPostQuote = true;
 
   const creatorId = contract.createdById;
   const isCreator = creatorId != null && currentUserId === creatorId;

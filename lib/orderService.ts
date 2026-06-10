@@ -46,17 +46,9 @@ export interface PlaceOrderParams {
  */
 export async function placeOrder({
   actorId,
-  userRole,
   body,
   idempotencyKey,
 }: PlaceOrderParams): Promise<NextResponse> {
-  if (userRole === "ADMIN") {
-    return NextResponse.json(
-      { error: "Admin cannot submit orders" },
-      { status: 403 }
-    );
-  }
-
   const { contractId, side, size, type, limitPrice } = body;
 
   // ── Input Validation ──
