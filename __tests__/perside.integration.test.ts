@@ -11,7 +11,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { executeLimitOrder, executeMarketOrder } from "@/lib/matching-engine";
+import { executeMarketOrder } from "@/lib/matching-engine";
 
 const RUN = process.env.RUN_DB_ITEST === "1";
 const d = RUN ? describe : describe.skip;
@@ -77,18 +77,18 @@ d("per-side inventory — real Postgres (#4)", () => {
     await prisma.$disconnect();
   });
 
-  test("LIMIT OVER consumes ask inventory only; bid stays intact; quote OPEN", async () => {
+  test("sweep OVER consumes ask inventory only; bid stays intact; quote OPEN", async () => {
     const q = await prisma.quote.create({
       data: { contractId, makerId, bid: 30, ask: 40, bidSize: 25, askSize: 10, status: "OPEN" },
     });
 
     const result = await prisma.$transaction((tx) =>
-      executeLimitOrder(tx, takerId, {
+      executeMarketOrder(tx, takerId, {
         contractId,
         side: "OVER",
         size: 10,
-        type: "LIMIT",
-        quoteId: q.id,
+        type: "MARKET",
+        limitPrice: 40,
       })
     );
 

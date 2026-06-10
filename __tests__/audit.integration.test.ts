@@ -11,12 +11,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import {
-  executeLimitOrder,
-  executeMarketOrder,
-  SelfTradeError,
-  SideNotOfferedError,
-} from "@/lib/matching-engine";
+import { executeMarketOrder } from "@/lib/matching-engine";
 import { calculateAvailableMargin } from "@/lib/margin";
 import { postQuote } from "@/lib/quoteService";
 
@@ -112,26 +107,20 @@ d("deep-audit — per-side + creator changes (real Postgres)", () => {
 
     // Taker buys OVER 25 → maker becomes UNDER@40 ×25 (uses all its margin).
     const r1 = await prisma.$transaction((tx) =>
-      executeLimitOrder(tx, taker, { contractId, side: "OVER", size: 25, type: "LIMIT", quoteId: q.id })
+      executeMarketOrder(tx, taker, { contractId, side: "OVER", size: 25, type: "MARKET", limitPrice: 40 })
     );
     expect(r1.totalFilled).toBe(25);
     expect(await calculateAvailableMargin(m)).toBe(0);
 
     // Taker2 sells UNDER 25 → maker becomes OVER@30 ×25, which HEDGES UNDER@40.
     // Combined worst-case is 0 → the maker can safely take it; fill must succeed.
-    let r2filled = 0;
-    let r2err: unknown = null;
-    try {
-      const r2 = await prisma.$transaction((tx) =>
-        executeLimitOrder(tx, taker2, { contractId, side: "UNDER", size: 25, type: "LIMIT", quoteId: q.id })
-      );
-      r2filled = r2.totalFilled;
-    } catch (e) {
-      r2err = e;
-    }
+    const r2 = await prisma.$transaction((tx) =>
+      executeMarketOrder(tx, taker2, { contractId, side: "UNDER", size: 25, type: "MARKET", limitPrice: 30 })
+    );
 
-    expect(r2err).toBeNull(); // bug → throws MakerMarginError and cancels the quote
-    expect(r2filled).toBe(25);
+    expect(r2.cancelledQuoteIds).toHaveLength(0); // bug → falsely cancels the quote as toxic
+    expect(r2.totalFilled).toBe(25);
+    expect(q.id).toBeGreaterThan(0);
     expect(await calculateAvailableMargin(m)).toBeGreaterThanOrEqual(0);
   });
 
@@ -143,7 +132,7 @@ d("deep-audit — per-side + creator changes (real Postgres)", () => {
     });
 
     await prisma.$transaction((tx) =>
-      executeLimitOrder(tx, taker, { contractId, side: "OVER", size: 5, type: "LIMIT", quoteId: q.id })
+      executeMarketOrder(tx, taker, { contractId, side: "OVER", size: 5, type: "MARKET", limitPrice: 40 })
     );
     const mid = await prisma.quote.findUnique({ where: { id: q.id } });
     expect(mid?.askSize).toBe(0);
@@ -151,25 +140,19 @@ d("deep-audit — per-side + creator changes (real Postgres)", () => {
     expect(mid?.status).toBe("OPEN"); // bid side still live
 
     await prisma.$transaction((tx) =>
-      executeLimitOrder(tx, taker, { contractId, side: "UNDER", size: 5, type: "LIMIT", quoteId: q.id })
+      executeMarketOrder(tx, taker, { contractId, side: "UNDER", size: 5, type: "MARKET", limitPrice: 30 })
     );
     const done = await prisma.quote.findUnique({ where: { id: q.id } });
     expect(done?.bidSize).toBe(0);
     expect(done?.status).toBe("EXHAUSTED"); // both sides depleted
   });
 
-  // ── Pass 6: one-sided (bid-only) quote rejects the unoffered side ───────────
-  test("data: bid-only quote — LIMIT OVER throws, MARKET OVER fills nothing", async () => {
+  // ── Pass 6: one-sided (bid-only) quote offers nothing on the other side ─────
+  test("data: bid-only quote — OVER order fills nothing", async () => {
     const contractId = await mkContract();
-    const q = await prisma.quote.create({
+    await prisma.quote.create({
       data: { contractId, makerId: maker, bid: 30, ask: null, bidSize: 10, askSize: null, status: "OPEN" },
     });
-
-    await expect(
-      prisma.$transaction((tx) =>
-        executeLimitOrder(tx, taker, { contractId, side: "OVER", size: 5, type: "LIMIT", quoteId: q.id })
-      )
-    ).rejects.toThrow(SideNotOfferedError);
 
     const mkt = await prisma.$transaction((tx) =>
       executeMarketOrder(tx, taker, { contractId, side: "OVER", size: 5, type: "MARKET", limitPrice: 100 })
@@ -178,17 +161,11 @@ d("deep-audit — per-side + creator changes (real Postgres)", () => {
   });
 
   // ── Pass 1: self-trade prevention still holds with per-side sizing ──────────
-  test("wiring: maker cannot trade against own quote (LIMIT throws, MARKET skips)", async () => {
+  test("wiring: maker cannot trade against own quote (sweep skips it)", async () => {
     const contractId = await mkContract();
-    const q = await prisma.quote.create({
+    await prisma.quote.create({
       data: { contractId, makerId: maker, bid: 30, ask: 40, bidSize: 10, askSize: 10, status: "OPEN" },
     });
-
-    await expect(
-      prisma.$transaction((tx) =>
-        executeLimitOrder(tx, maker, { contractId, side: "OVER", size: 5, type: "LIMIT", quoteId: q.id })
-      )
-    ).rejects.toThrow(SelfTradeError);
 
     const mkt = await prisma.$transaction((tx) =>
       executeMarketOrder(tx, maker, { contractId, side: "OVER", size: 5, type: "MARKET", limitPrice: 100 })

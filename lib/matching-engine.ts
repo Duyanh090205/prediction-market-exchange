@@ -1,10 +1,13 @@
 // Matching Engine — Price-Time Priority CLOB with Double Margining
 //
-// Both LIMIT (single quote) and MARKET (book sweep) execute under
-// SELECT FOR UPDATE inside a Prisma interactive transaction. Margin is
-// computed ONCE at entry per side (taker, each maker touched), then
-// updated incrementally per fill — no re-querying the full margin state
-// inside the loop, which keeps the transaction window tight.
+// One execution primitive: sweep the book best-price-first up to a price cap,
+// under SELECT FOR UPDATE inside a Prisma interactive transaction. Both order
+// types route through it: MARKET (cap = price-band edge) and LIMIT (cap = the
+// user's limit; the unfilled remainder rests in the book as a one-sided quote
+// — see orderService). Crossing quotes also auto-match through it (see
+// quoteService). The resting (first-submitted) order's price is always the
+// trade price. Margin is computed ONCE at entry per side (taker, each maker
+// touched), then updated incrementally per fill.
 
 import { Prisma } from "@prisma/client";
 import {
@@ -21,9 +24,7 @@ export interface OrderInput {
   side: OrderSide;
   size: number;
   type: OrderType;
-  /** For LIMIT orders: the specific quoteId to hit */
-  quoteId?: number;
-  /** Slippage protection: worst acceptable price. Required for MARKET orders. */
+  /** Worst acceptable price (band edge for MARKET, the user's limit for LIMIT). */
   limitPrice?: number;
   /** Idempotency key from request — also stored on Trade rows for hard dedup */
   idempotencyKey?: string;
@@ -182,140 +183,7 @@ function applyFillToSnapshot(
   snapshot.positionsByContract.set(contractId, list);
 }
 
-// ─── LIMIT ──────────────────────────────────────────────────────────────────
-
-export async function executeLimitOrder(
-  tx: Prisma.TransactionClient,
-  takerId: number,
-  input: OrderInput
-): Promise<MatchResult> {
-  if (!input.quoteId) throw new Error("LIMIT orders require a quoteId");
-
-  const fills: FillResult[] = [];
-  const cancelledQuoteIds: number[] = [];
-
-  const lockedQuotes = await tx.$queryRaw<
-    Array<{
-      id: number;
-      contractId: number;
-      makerId: number;
-      bid: number | null;
-      ask: number | null;
-      bidSize: number | null;
-      askSize: number | null;
-      status: string;
-    }>
-  >`
-    SELECT id, "contractId", "makerId", bid, ask, "bidSize", "askSize", status
-    FROM "Quote"
-    WHERE id = ${input.quoteId}
-    FOR UPDATE
-  `;
-
-  const quote = lockedQuotes[0];
-  if (!quote || quote.status !== "OPEN") throw new QuoteNotOpenError(input.quoteId);
-  if (quote.makerId === takerId) throw new SelfTradeError();
-  if (quote.contractId !== input.contractId)
-    throw new ContractMismatchError(input.contractId, quote.contractId);
-
-  const strike = input.side === "OVER" ? quote.ask : quote.bid;
-  // Inventory available on the side the taker wants to hit.
-  const sideInventory = input.side === "OVER" ? quote.askSize ?? 0 : quote.bidSize ?? 0;
-  if (strike == null || sideInventory <= 0) throw new SideNotOfferedError(input.side);
-
-  const requestedFill = Math.min(input.size, sideInventory);
-
-  // Cap by both margin snapshots
-  const takerSnap = await snapshotMargin(tx, takerId);
-  const makerSnap = await snapshotMargin(tx, quote.makerId);
-
-  const takerCap = maxFillByMargin(
-    takerSnap,
-    quote.contractId,
-    input.side,
-    strike,
-    true,
-    requestedFill
-  );
-  // Model the maker's leg with the ACTUAL taker side (input.side) and
-  // isAsTaker=false — exactly how snapshotMargin records committed trades.
-  // pnlForUser negates for isAsTaker=false, so this yields the maker's true
-  // P&L. (Passing the maker's OWN side here flips the sign, making a risk-
-  // reducing hedge look like a doubling and falsely cancelling the quote.)
-  const makerCap = maxFillByMargin(
-    makerSnap,
-    quote.contractId,
-    input.side,
-    strike,
-    false,
-    requestedFill
-  );
-
-  const fillSize = Math.min(takerCap, makerCap);
-  if (fillSize <= 0) {
-    if (makerCap <= 0) {
-      // Toxic quote — cancel it so the book stops advertising what the maker can't honour
-      await tx.quote.update({
-        where: { id: quote.id },
-        data: { status: "CANCELLED" },
-      });
-      cancelledQuoteIds.push(quote.id);
-      throw new MakerMarginError(quote.id);
-    }
-    throw new TakerMarginError(requestedFill, availableFromSnapshot(takerSnap));
-  }
-
-  const trade = await tx.trade.create({
-    data: {
-      contractId: input.contractId,
-      quoteId: quote.id,
-      takerId,
-      makerId: quote.makerId,
-      takerSide: input.side,
-      strike,
-      size: fillSize,
-      status: "OPEN",
-      idempotencyKey: input.idempotencyKey ?? null,
-    },
-  });
-
-  // Decrement only the side that was hit; the other side is untouched.
-  const curBidSize = quote.bidSize ?? 0;
-  const curAskSize = quote.askSize ?? 0;
-  const newBidSize = input.side === "UNDER" ? curBidSize - fillSize : curBidSize;
-  const newAskSize = input.side === "OVER" ? curAskSize - fillSize : curAskSize;
-  const remaining = Math.max(input.side === "OVER" ? newAskSize : newBidSize, 0);
-  const finalBidSize = quote.bid != null ? Math.max(newBidSize, 0) : null;
-  const finalAskSize = quote.ask != null ? Math.max(newAskSize, 0) : null;
-  const quoteStatus = liveStatus(quote.bid, quote.ask, newBidSize, newAskSize);
-  await tx.quote.update({
-    where: { id: quote.id },
-    data: { bidSize: finalBidSize, askSize: finalAskSize, status: quoteStatus },
-  });
-
-  fills.push({
-    quoteId: quote.id,
-    tradeId: trade.id,
-    makerId: quote.makerId,
-    strike,
-    size: fillSize,
-    quoteRemainingSize: remaining,
-    quoteBidSize: finalBidSize,
-    quoteAskSize: finalAskSize,
-    quoteStatus,
-  });
-
-  await tx.notification.create({
-    data: {
-      userId: quote.makerId,
-      message: `Your quote was hit — trade #${trade.id} executed (${fillSize} @ ${strike})`,
-    },
-  });
-
-  return { fills, totalFilled: fillSize, cancelledQuoteIds };
-}
-
-// ─── MARKET ─────────────────────────────────────────────────────────────────
+// ─── SWEEP (the single execution primitive) ─────────────────────────────────
 
 export async function executeMarketOrder(
   tx: Prisma.TransactionClient,
@@ -323,7 +191,7 @@ export async function executeMarketOrder(
   input: OrderInput
 ): Promise<MatchResult> {
   if (input.limitPrice == null)
-    throw new Error("MARKET orders require a limitPrice for slippage protection");
+    throw new Error("Sweeps require a limitPrice (band edge for MARKET orders)");
 
   const fills: FillResult[] = [];
   const cancelledQuoteIds: number[] = [];
@@ -404,6 +272,11 @@ export async function executeMarketOrder(
       makerSnaps.set(quote.makerId, makerSnap);
     }
 
+    // Model the maker's leg with the ACTUAL taker side (input.side) and
+    // isAsTaker=false — exactly how snapshotMargin records committed trades.
+    // pnlForUser negates for isAsTaker=false, so this yields the maker's true
+    // P&L. (Passing the maker's OWN side here would flip the sign, making a
+    // risk-reducing hedge look like a doubling and falsely cancel the quote.)
     const makerCap = maxFillByMargin(
       makerSnap,
       input.contractId,
@@ -486,48 +359,6 @@ export async function executeMarketOrder(
     totalFilled: input.size - remainingSize,
     cancelledQuoteIds,
   };
-}
-
-// ─── Errors ─────────────────────────────────────────────────────────────────
-
-export class QuoteNotOpenError extends Error {
-  constructor(quoteId: number) {
-    super(`Quote ${quoteId} is no longer open`);
-  }
-}
-
-export class SelfTradeError extends Error {
-  constructor() {
-    super("Cannot trade against your own quote");
-  }
-}
-
-export class SideNotOfferedError extends Error {
-  constructor(side: string) {
-    super(`Quote does not offer the ${side} side`);
-  }
-}
-
-export class MakerMarginError extends Error {
-  quoteId: number;
-  constructor(quoteId: number) {
-    super(`Maker on quote ${quoteId} has insufficient margin — quote cancelled`);
-    this.quoteId = quoteId;
-  }
-}
-
-export class ContractMismatchError extends Error {
-  constructor(expected: number, actual: number) {
-    super(`Quote belongs to contract ${actual}, not ${expected}`);
-  }
-}
-
-export class TakerMarginError extends Error {
-  constructor(required: number, available: number) {
-    super(
-      `Insufficient margin: trade requires ${required}, you have ${available} available`
-    );
-  }
 }
 
 // Re-export for callers that need to introspect (tests)

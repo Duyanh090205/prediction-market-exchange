@@ -1,24 +1,15 @@
 /**
  * Matching Engine Test Suite
  *
- * Tests the FIFO sweep algorithm, Double Margining, slippage protection,
- * self-trade prevention, and partial fills.
+ * Tests the single sweep primitive (price-time priority, Double Margining,
+ * price caps, self-trade prevention, partial fills, per-side inventory).
+ * MARKET and LIMIT orders, and crossing-quote auto-match, all route through it.
  *
  * Strategy: We mock the Prisma TransactionClient and the margin calculator
  * so these tests are fully offline and deterministic.
  */
 
-import {
-  executeLimitOrder,
-  executeMarketOrder,
-  QuoteNotOpenError,
-  SelfTradeError,
-  SideNotOfferedError,
-  MakerMarginError,
-  ContractMismatchError,
-  TakerMarginError,
-  type OrderInput,
-} from "@/lib/matching-engine";
+import { executeMarketOrder } from "@/lib/matching-engine";
 
 // ─── Mock per-user balance ─────────────────────────────────────────────────
 // Engine now reads margin via tx.user/tx.trade directly (snapshotMargin), so
@@ -60,14 +51,8 @@ function createMockTx() {
     $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = strings.join("?");
 
-      // Single quote fetch (LIMIT order)
-      if (query.includes("WHERE id =") && query.includes("FOR UPDATE")) {
-        const quoteId = values[0] as number;
-        const found = mockQuotes.filter((q) => q.id === quoteId);
-        return found;
-      }
-
-      // Multi-quote fetch (MARKET order sweep)
+      // Book sweep fetch — mirrors the real SQL filters (status, side priced,
+      // side inventory > 0, not own quote) and price-time ordering.
       if (query.includes("ORDER BY")) {
         const contractId = values[0] as number;
         const takerId = values[1] as number;
@@ -81,12 +66,12 @@ function createMockTx() {
         if (query.includes("ask ASC")) {
           // OVER side — lowest ask first
           filtered = filtered
-            .filter((q) => q.ask != null)
+            .filter((q) => q.ask != null && (q.askSize ?? 0) > 0)
             .sort((a, b) => a.ask! - b.ask! || a.createdAt.getTime() - b.createdAt.getTime());
         } else if (query.includes("bid DESC")) {
           // UNDER side — highest bid first
           filtered = filtered
-            .filter((q) => q.bid != null)
+            .filter((q) => q.bid != null && (q.bidSize ?? 0) > 0)
             .sort((a, b) => b.bid! - a.bid! || a.createdAt.getTime() - b.createdAt.getTime());
         }
 
@@ -145,7 +130,7 @@ function createMockTx() {
         return { id: 1, ...data };
       }),
     },
-  } as unknown as Parameters<typeof executeLimitOrder>[0];
+  } as unknown as Parameters<typeof executeMarketOrder>[0];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -181,19 +166,20 @@ beforeEach(() => {
   mockOpenTrades = [];
 });
 
-// ─── LIMIT ORDER TESTS ────────────────────────────────────────────────────
+// ─── SINGLE-QUOTE SWEEP BEHAVIOR ─────────────────────────────────────────────
+// (formerly the quoteId-targeted LIMIT path — same behaviors, now via the sweep)
 
-describe("executeLimitOrder", () => {
-  test("fills against a single OPEN quote", async () => {
+describe("sweep against a single quote", () => {
+  test("partial fill leaves the quote OPEN with decremented ask side", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 50 })];
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, /* takerId */ 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 25,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 220,
     });
 
     expect(result.totalFilled).toBe(25);
@@ -207,7 +193,6 @@ describe("executeLimitOrder", () => {
       quoteStatus: "OPEN",
     });
 
-    // Ask side should be decremented, not exhausted
     const quoteUpdate = updatedQuotes.find((u) => u.id === 10);
     expect(quoteUpdate?.data.askSize).toBe(25);
     expect(quoteUpdate?.data.status).toBe("OPEN");
@@ -216,20 +201,18 @@ describe("executeLimitOrder", () => {
   test("fillSize is capped by quote inventory, margin checked against fillSize", async () => {
     // Quote has size 10, taker wants 50, maker has margin 15.
     // fillSize = min(50, 10) = 10. Margin 15 >= 10, so trade succeeds.
-    // BUG (pre-fix): compared margin(15) < input.size(50) → would wrongly cancel.
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 10 })];
     mockMargins.set(2, 15);
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 50,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 300,
     });
 
-    // Should succeed with fill of 10 (not throw MakerMarginError)
     expect(result.totalFilled).toBe(10);
     expect(result.fills[0].size).toBe(10);
     expect(result.fills[0].quoteStatus).toBe("EXHAUSTED");
@@ -239,12 +222,12 @@ describe("executeLimitOrder", () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 25 })];
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 25,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 220,
     });
 
     expect(result.totalFilled).toBe(25);
@@ -252,64 +235,47 @@ describe("executeLimitOrder", () => {
     expect(result.fills[0].quoteRemainingSize).toBe(0);
   });
 
-  test("throws SelfTradeError when taker owns the quote", async () => {
-    mockQuotes = [makeQuote({ id: 10, makerId: 1, ask: 220 })];
-    const tx = createMockTx();
-
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER",
-        size: 10,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(SelfTradeError);
-  });
-
-  test("throws QuoteNotOpenError for EXHAUSTED quote", async () => {
+  test("EXHAUSTED quotes are not swept", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, status: "EXHAUSTED" })];
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER",
-        size: 10,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(QuoteNotOpenError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 10,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(0);
   });
 
-  test("throws SideNotOfferedError when quote has no ask for OVER order", async () => {
+  test("a bid-only quote offers nothing to an OVER order", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, bid: 200, ask: null })];
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER",
-        size: 10,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(SideNotOfferedError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 10,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(0);
   });
 
-  test("partial-fills against maker's available margin instead of throwing", async () => {
-    // Real-trading-platform semantics: a maker with limited margin can still
-    // honour a smaller fill. We cap to their capacity rather than aborting.
+  test("partial-fills against maker's available margin instead of failing", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 50 })];
     mockMargins.set(2, 5);
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 25,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 300,
     });
 
     expect(result.totalFilled).toBe(5);
@@ -321,78 +287,78 @@ describe("executeLimitOrder", () => {
     mockMargins.set(2, 0); // Maker has nothing — cannot honour any size
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER",
-        size: 25,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(MakerMarginError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 25,
+      type: "MARKET",
+      limitPrice: 300,
+    });
 
+    expect(result.totalFilled).toBe(0);
+    expect(result.cancelledQuoteIds).toContain(10);
     const quoteUpdate = updatedQuotes.find((u) => u.id === 10);
     expect(quoteUpdate?.data.status).toBe("CANCELLED");
   });
 
-  test("throws ContractMismatchError when quote belongs to different contract (S1)", async () => {
+  test("quotes from a different contract are never touched", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, contractId: 5 })];
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 999, // Mismatched!
-        side: "OVER",
-        size: 10,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(ContractMismatchError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 999,
+      side: "OVER",
+      size: 10,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(0);
   });
 
-  test("LIMIT partial-fills to taker's available margin", async () => {
+  test("partial-fills to the taker's available margin", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 50 })];
     mockMargins.set(1, 5); // Taker (id=1) only has 5 margin
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 25,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 300,
     });
 
     expect(result.totalFilled).toBe(5);
     expect(result.fills[0].size).toBe(5);
   });
 
-  test("LIMIT throws TakerMarginError when taker has zero margin", async () => {
+  test("fills nothing when the taker has zero margin", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 50 })];
     mockMargins.set(1, 0);
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER",
-        size: 25,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(TakerMarginError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER",
+      size: 25,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(0);
   });
 
   test("creates a notification for the maker", async () => {
     mockQuotes = [makeQuote({ id: 10, makerId: 2, ask: 220, size: 50 })];
     const tx = createMockTx();
 
-    await executeLimitOrder(tx, 1, {
+    await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 10,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 220,
     });
 
     expect(createdNotifications).toHaveLength(1);
@@ -648,18 +614,18 @@ describe("executeMarketOrder", () => {
 // ─── PER-SIDE INVENTORY (#4) ─────────────────────────────────────────────────
 
 describe("per-side inventory (#4)", () => {
-  test("LIMIT: hitting the ask leaves the bid side untouched, quote stays OPEN", async () => {
+  test("hitting the ask leaves the bid side untouched, quote stays OPEN", async () => {
     mockQuotes = [
       makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 10 }),
     ];
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "OVER",
       size: 10,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 240,
     });
 
     expect(result.fills[0]).toMatchObject({ strike: 240, size: 10 });
@@ -670,18 +636,18 @@ describe("per-side inventory (#4)", () => {
     expect(upd?.data.status).toBe("OPEN"); // still live on the bid side
   });
 
-  test("LIMIT: hitting the bid leaves the ask side untouched", async () => {
+  test("hitting the bid leaves the ask side untouched", async () => {
     mockQuotes = [
       makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 10 }),
     ];
     const tx = createMockTx();
 
-    const result = await executeLimitOrder(tx, 1, {
+    const result = await executeMarketOrder(tx, 1, {
       contractId: 1,
       side: "UNDER",
       size: 25,
-      type: "LIMIT",
-      quoteId: 10,
+      type: "MARKET",
+      limitPrice: 200,
     });
 
     expect(result.fills[0]).toMatchObject({ strike: 200, size: 25 });
@@ -692,21 +658,21 @@ describe("per-side inventory (#4)", () => {
     expect(upd?.data.status).toBe("OPEN");
   });
 
-  test("LIMIT: a priced side with zero inventory is not tradeable", async () => {
+  test("a priced side with zero inventory is not tradeable", async () => {
     mockQuotes = [
       makeQuote({ id: 10, makerId: 2, bid: 200, ask: 240, bidSize: 25, askSize: 0 }),
     ];
     const tx = createMockTx();
 
-    await expect(
-      executeLimitOrder(tx, 1, {
-        contractId: 1,
-        side: "OVER", // ask priced but askSize is 0
-        size: 5,
-        type: "LIMIT",
-        quoteId: 10,
-      })
-    ).rejects.toThrow(SideNotOfferedError);
+    const result = await executeMarketOrder(tx, 1, {
+      contractId: 1,
+      side: "OVER", // ask priced but askSize is 0
+      size: 5,
+      type: "MARKET",
+      limitPrice: 300,
+    });
+
+    expect(result.totalFilled).toBe(0);
   });
 
   test("MARKET: sweep only consumes ask inventory; bid side preserved", async () => {

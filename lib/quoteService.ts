@@ -14,6 +14,8 @@ import { prisma } from "@/lib/prisma";
 import { calculateAvailableMargin } from "@/lib/margin";
 import { recordPricePoint } from "@/lib/price-history";
 import { emitQuoteUpdated } from "@/lib/socket-events";
+import { executeMarketOrder, type MatchResult } from "@/lib/matching-engine";
+import { broadcastFills } from "@/lib/fill-effects";
 
 export interface PostQuoteParams {
   actorId: number;
@@ -102,7 +104,7 @@ export async function postQuote({
   // Verify contract exists, is OPEN, and bid/ask fall inside its price band.
   const contract = await prisma.contract.findUnique({
     where: { id: Number(contractId) },
-    select: { id: true, status: true, minPrice: true, maxPrice: true },
+    select: { id: true, title: true, status: true, minPrice: true, maxPrice: true },
   });
 
   if (!contract) {
@@ -144,32 +146,116 @@ export async function postQuote({
     );
   }
 
-  const quote = await prisma.quote.create({
-    data: {
-      contractId: Number(contractId),
-      makerId: actorId,
-      bid: bid ?? null,
-      ask: ask ?? null,
-      bidSize: bid != null ? bidSize : null,
-      askSize: ask != null ? askSize : null,
+  // ── Crossing auto-match — the book never stays crossed ──
+  // A quote's bid is an intent to take OVER at that price; its ask an intent to
+  // take UNDER. If either side crosses resting orders, it executes immediately
+  // at the RESTING orders' prices (first-submitted price honored), and only the
+  // remainder rests in the book. Both sweeps + the insert are one transaction.
+  const cid = Number(contractId);
+  const empty: MatchResult = { fills: [], totalFilled: 0, cancelledQuoteIds: [] };
+
+  const { bidResult, askResult, createdQuote } = await prisma.$transaction(
+    async (tx) => {
+      let bidResult: MatchResult = empty;
+      let askResult: MatchResult = empty;
+
+      if (bid != null) {
+        // New bid B vs resting asks ≤ B → poster takes OVER at the resting ask.
+        bidResult = await executeMarketOrder(tx, actorId, {
+          contractId: cid,
+          side: "OVER",
+          size: bidSize as number,
+          type: "MARKET",
+          limitPrice: bid,
+        });
+      }
+      if (ask != null) {
+        // New ask A vs resting bids ≥ A → poster takes UNDER at the resting bid.
+        askResult = await executeMarketOrder(tx, actorId, {
+          contractId: cid,
+          side: "UNDER",
+          size: askSize as number,
+          type: "MARKET",
+          limitPrice: ask,
+        });
+      }
+
+      let remBid = bid != null ? (bidSize as number) - bidResult.totalFilled : null;
+      let remAsk = ask != null ? (askSize as number) - askResult.totalFilled : null;
+
+      // Re-check margin AFTER the fills (they changed the maker's position) and
+      // cap what can rest to what the maker can still back.
+      const availableNow = await calculateAvailableMargin(actorId, tx);
+      const restCap = Math.max(availableNow, 0);
+      if (remBid != null) remBid = Math.min(remBid, restCap);
+      if (remAsk != null) remAsk = Math.min(remAsk, restCap);
+
+      let createdQuote = null;
+      if ((remBid ?? 0) > 0 || (remAsk ?? 0) > 0) {
+        createdQuote = await tx.quote.create({
+          data: {
+            contractId: cid,
+            makerId: actorId,
+            bid: bid ?? null,
+            ask: ask ?? null,
+            bidSize: bid != null ? remBid : null,
+            askSize: ask != null ? remAsk : null,
+            status: "OPEN",
+          },
+          include: {
+            maker: { select: { id: true, username: true, role: true } },
+          },
+        });
+      }
+
+      return { bidResult, askResult, createdQuote };
+    },
+    { maxWait: 5000, timeout: 10000 }
+  );
+
+  // ── Side effects (post-commit): notifications + websocket pushes ──
+  if (bidResult.fills.length || bidResult.cancelledQuoteIds.length) {
+    await broadcastFills({
+      takerId: actorId,
+      contractId: cid,
+      contractTitle: contract.title,
+      side: "OVER",
+      result: bidResult,
+    });
+  }
+  if (askResult.fills.length || askResult.cancelledQuoteIds.length) {
+    await broadcastFills({
+      takerId: actorId,
+      contractId: cid,
+      contractTitle: contract.title,
+      side: "UNDER",
+      result: askResult,
+    });
+  }
+  if (createdQuote) {
+    emitQuoteUpdated({
+      quoteId: createdQuote.id,
+      contractId: cid,
+      bidSize: createdQuote.bidSize,
+      askSize: createdQuote.askSize,
       status: "OPEN",
+    });
+  }
+
+  // Append a price-chart point — fills and/or the new quote can move the mid.
+  await recordPricePoint(cid);
+
+  const totalFilled = bidResult.totalFilled + askResult.totalFilled;
+  return NextResponse.json(
+    {
+      quote: createdQuote,
+      matched: {
+        totalFilled,
+        bidFilled: bidResult.totalFilled,
+        askFilled: askResult.totalFilled,
+        fills: [...bidResult.fills, ...askResult.fills],
+      },
     },
-    include: {
-      maker: { select: { id: true, username: true, role: true } },
-    },
-  });
-
-  // Append a price-chart point — a new quote can move the market mid.
-  await recordPricePoint(quote.contractId);
-
-  // Realtime: tell everyone watching this market that a new quote is live.
-  emitQuoteUpdated({
-    quoteId: quote.id,
-    contractId: quote.contractId,
-    bidSize: quote.bidSize,
-    askSize: quote.askSize,
-    status: "OPEN",
-  });
-
-  return NextResponse.json({ quote }, { status: 201 });
+    { status: 201 }
+  );
 }

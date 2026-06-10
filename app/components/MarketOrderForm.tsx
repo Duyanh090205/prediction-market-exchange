@@ -10,18 +10,19 @@ interface MarketOrderFormProps {
   minPrice: number;
   maxPrice: number;
   /**
-   * "market" = fill at the best available price (no slippage cap).
-   * "sweep"  = walk the book up to a user-set limit price (slippage control).
-   * Both always consume best price first (engine: price-time priority).
+   * "market" = fill at the best available prices, no price cap.
+   * "limit"  = fill up to (down to) the given price; the unfilled remainder
+   *            RESTS in the order book as an outstanding order.
+   * Both always sweep best-price-first; the resting order's price is honored.
    */
-  mode?: "market" | "sweep";
+  mode?: "market" | "limit";
 }
 
 export default function MarketOrderForm({
   contractId,
   minPrice,
   maxPrice,
-  mode = "sweep",
+  mode = "limit",
 }: MarketOrderFormProps) {
   const router = useRouter();
   const isMarket = mode === "market";
@@ -36,13 +37,7 @@ export default function MarketOrderForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const sizeNum = parseInt(size, 10);
-    // Market mode: accept any price up to the band edge → fills purely at the
-    // best available levels. Sweep mode: user-supplied slippage cap.
-    const limitNum = isMarket
-      ? side === "OVER"
-        ? maxPrice
-        : minPrice
-      : parseInt(limitPrice, 10);
+    const limitNum = parseInt(limitPrice, 10);
 
     if (!sizeNum || sizeNum < 1) {
       setError("Size must be at least 1");
@@ -65,13 +60,11 @@ export default function MarketOrderForm({
           "Content-Type": "application/json",
           "Idempotency-Key": uuidv7(),
         },
-        body: JSON.stringify({
-          contractId,
-          type: "MARKET",
-          side,
-          size: sizeNum,
-          limitPrice: limitNum,
-        }),
+        body: JSON.stringify(
+          isMarket
+            ? { contractId, type: "MARKET", side, size: sizeNum }
+            : { contractId, type: "LIMIT", side, size: sizeNum, limitPrice: limitNum }
+        ),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -80,7 +73,10 @@ export default function MarketOrderForm({
         if (data.warning) {
           setWarning(data.warning);
         } else {
-          setSuccess(`Successfully filled ${data.totalFilled} contracts!`);
+          const parts: string[] = [];
+          if (data.totalFilled > 0) parts.push(`Filled ${data.totalFilled}`);
+          if (data.resting) parts.push(`${data.resting.size} resting @ ${data.resting.price}`);
+          setSuccess(parts.join(" · ") || "Done");
           setSize("");
           setLimitPrice("");
           router.refresh();
@@ -112,12 +108,12 @@ export default function MarketOrderForm({
           letterSpacing: "0.05em",
         }}
       >
-        {isMarket ? "Market Order" : "Sweep Market"}
+        {isMarket ? "Market Order" : "Limit Order"}
       </h3>
       <p style={{ margin: "0 0 1rem", fontSize: "0.75rem", color: "#5a5a72" }}>
         {isMarket
-          ? "Fills your size at the best available price."
-          : "Walks the book up to your limit price (best price first)."}
+          ? "Fills your size at the best available prices."
+          : "Fills up to your price (best price first); the remainder rests in the book as an outstanding order."}
       </p>
 
       <form onSubmit={submit}>
@@ -233,8 +229,8 @@ export default function MarketOrderForm({
               ? "Filling..."
               : "Buy at Best Price"
             : submitting
-              ? "Sweeping Book..."
-              : "Execute Sweep"}
+              ? "Placing..."
+              : "Place Limit Order"}
         </button>
 
         {error && (

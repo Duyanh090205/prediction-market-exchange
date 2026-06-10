@@ -21,18 +21,12 @@ import {
   IdempotencyMismatchError,
 } from "@/lib/idempotency";
 import {
-  executeLimitOrder,
   executeMarketOrder,
-  QuoteNotOpenError,
-  SelfTradeError,
-  SideNotOfferedError,
-  MakerMarginError,
-  ContractMismatchError,
-  TakerMarginError,
   type OrderInput,
   type MatchResult,
 } from "@/lib/matching-engine";
-import { emitTradeExecuted, emitQuoteUpdated } from "@/lib/socket-events";
+import { broadcastFills } from "@/lib/fill-effects";
+import { emitQuoteUpdated } from "@/lib/socket-events";
 import { recordPricePoint } from "@/lib/price-history";
 
 export interface PlaceOrderParams {
@@ -63,7 +57,7 @@ export async function placeOrder({
     );
   }
 
-  const { contractId, side, size, type, quoteId, limitPrice } = body;
+  const { contractId, side, size, type, limitPrice } = body;
 
   // ── Input Validation ──
   if (contractId == null || side == null || size == null || type == null) {
@@ -103,16 +97,18 @@ export async function placeOrder({
     );
   }
 
-  if (type === "LIMIT" && quoteId == null) {
+  // Targeting a specific quote was removed — only MARKET (fill at best price)
+  // and LIMIT (fill up to a price; remainder rests in the book) exist now.
+  if (body.quoteId != null) {
     return NextResponse.json(
-      { error: "LIMIT orders require a quoteId" },
+      { error: "quoteId targeting was removed — use a LIMIT order with limitPrice" },
       { status: 400 }
     );
   }
 
-  if (type === "MARKET" && limitPrice == null) {
+  if (type === "LIMIT" && limitPrice == null) {
     return NextResponse.json(
-      { error: "MARKET orders require a limitPrice for slippage protection" },
+      { error: "LIMIT orders require a limitPrice" },
       { status: 400 }
     );
   }
@@ -177,107 +173,82 @@ export async function placeOrder({
   }
 
   // ── Build order input ──
+  // The sweep cap: a LIMIT order's price, or the band edge for MARKET (fill at
+  // whatever the book offers — there is no resting price for a market order).
+  const cap =
+    limitPrice != null
+      ? Number(limitPrice)
+      : side === "OVER"
+        ? contract.maxPrice
+        : contract.minPrice;
+
   const orderInput: OrderInput = {
     contractId: Number(contractId),
     side: side as "OVER" | "UNDER",
     size,
     type: type as "LIMIT" | "MARKET",
-    quoteId: quoteId != null ? Number(quoteId) : undefined,
-    limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
+    limitPrice: cap,
     idempotencyKey,
   };
 
   // ── Execute inside Prisma interactive transaction ──
-  let result: MatchResult;
+  // Sweep first (always enabled — any matching resting orders execute, at the
+  // resting order's price). For LIMIT, the unfilled remainder then RESTS in the
+  // book as a one-sided quote at the limit price:
+  //   buy OVER  @ ≤P, remainder R → bid P ×R (an UNDER seller hits it at P)
+  //   buy UNDER @ ≥P, remainder R → ask P ×R (an OVER buyer hits it at P)
+  let resting: { quoteId: number; price: number; size: number } | null = null;
 
-  try {
-    result = await prisma.$transaction(
-      async (tx) => {
-        if (orderInput.type === "LIMIT") {
-          return executeLimitOrder(tx, actorId, orderInput);
-        } else {
-          return executeMarketOrder(tx, actorId, orderInput);
+  const result: MatchResult = await prisma.$transaction(
+    async (tx) => {
+      const r = await executeMarketOrder(tx, actorId, orderInput);
+
+      if (type === "LIMIT") {
+        const remainder = size - r.totalFilled;
+        if (remainder > 0) {
+          // Reserve margin for the resting side; cap to what the taker can
+          // actually back after the fills above.
+          const available = await calculateAvailableMargin(actorId, tx);
+          const restSize = Math.min(remainder, Math.max(available, 0));
+          if (restSize > 0) {
+            const q = await tx.quote.create({
+              data:
+                side === "OVER"
+                  ? { contractId: orderInput.contractId, makerId: actorId, bid: cap, bidSize: restSize, status: "OPEN" }
+                  : { contractId: orderInput.contractId, makerId: actorId, ask: cap, askSize: restSize, status: "OPEN" },
+            });
+            resting = { quoteId: q.id, price: cap, size: restSize };
+          }
         }
-      },
-      {
-        maxWait: 5000, // Wait up to 5s for a transaction slot
-        timeout: 10000, // Transaction must complete within 10s
       }
-    );
-  } catch (e) {
-    // Handle known matching engine errors gracefully
-    if (e instanceof QuoteNotOpenError) {
-      return NextResponse.json({ error: e.message }, { status: 409 });
+      return r;
+    },
+    {
+      maxWait: 5000, // Wait up to 5s for a transaction slot
+      timeout: 10000, // Transaction must complete within 10s
     }
-    if (e instanceof SelfTradeError) {
-      return NextResponse.json({ error: e.message }, { status: 409 });
-    }
-    if (e instanceof SideNotOfferedError) {
-      return NextResponse.json({ error: e.message }, { status: 400 });
-    }
-    if (e instanceof MakerMarginError) {
-      return NextResponse.json(
-        { error: e.message, cancelledQuoteId: e.quoteId },
-        { status: 422 }
-      );
-    }
-    if (e instanceof ContractMismatchError) {
-      return NextResponse.json({ error: e.message }, { status: 400 });
-    }
-    if (e instanceof TakerMarginError) {
-      return NextResponse.json({ error: e.message }, { status: 422 });
-    }
-    throw e; // Unknown error → caller maps to 500
-  }
+  );
 
-  // ── Notify taker of fills ──
-  if (result.totalFilled > 0) {
-    const fillSummary = result.fills
-      .map((f) => `${f.size}@${f.strike}`)
-      .join(", ");
-    await prisma.notification.create({
-      data: {
-        userId: actorId,
-        message: `Order filled: ${result.totalFilled} total (${fillSummary}) on "${contract.title}"`,
-      },
-    });
-  }
-
-  // ── WebSocket: push real-time updates ──
-  for (const fill of result.fills) {
-    emitTradeExecuted({
-      tradeId: fill.tradeId,
-      contractId: orderInput.contractId,
-      quoteId: fill.quoteId,
-      takerId: actorId,
-      makerId: fill.makerId,
-      takerSide: orderInput.side,
-      strike: fill.strike,
-      size: fill.size,
-    });
-  }
-
-  // Notify about quote status changes (exhausted/decremented)
-  for (const fill of result.fills) {
+  // ── Side effects: taker notification + websocket pushes ──
+  await broadcastFills({
+    takerId: actorId,
+    contractId: orderInput.contractId,
+    contractTitle: contract.title,
+    side: orderInput.side,
+    result,
+  });
+  if (resting) {
+    const r = resting as { quoteId: number; price: number; size: number };
     emitQuoteUpdated({
-      quoteId: fill.quoteId,
+      quoteId: r.quoteId,
       contractId: orderInput.contractId,
-      bidSize: fill.quoteBidSize,
-      askSize: fill.quoteAskSize,
-      status: fill.quoteStatus,
-    });
-  }
-  for (const cancelledId of result.cancelledQuoteIds) {
-    emitQuoteUpdated({
-      quoteId: cancelledId,
-      contractId: orderInput.contractId,
-      bidSize: 0,
-      askSize: 0,
-      status: "CANCELLED",
+      bidSize: side === "OVER" ? r.size : null,
+      askSize: side === "UNDER" ? r.size : null,
+      status: "OPEN",
     });
   }
 
-  // Append a price-chart point if the fill moved the market mid.
+  // Append a price-chart point if the fill/resting order moved the market mid.
   await recordPricePoint(orderInput.contractId);
 
   const responseBody: Record<string, unknown> = {
@@ -287,11 +258,15 @@ export async function placeOrder({
     totalFilled: result.totalFilled,
     fills: result.fills,
     cancelledQuoteIds: result.cancelledQuoteIds,
+    resting,
   };
 
-  // UX: flag zero-fill so the frontend can distinguish "no matches" from "filled"
-  if (result.totalFilled === 0) {
-    responseBody.warning = "No quotes matched your order criteria";
+  // UX: flag when nothing happened at all (no fill AND nothing rested)
+  if (result.totalFilled === 0 && !resting) {
+    responseBody.warning =
+      type === "LIMIT"
+        ? "Nothing filled and insufficient margin to rest the order"
+        : "No quotes matched your order criteria";
   }
 
   const statusCode = 200;

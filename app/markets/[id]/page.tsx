@@ -13,6 +13,7 @@ import AdminTradeDelete from "@/app/components/AdminTradeDelete";
 import AdminDeleteMarketButton from "@/app/components/AdminDeleteMarketButton";
 import SettleMarketButton from "@/app/components/SettleMarketButton";
 import ChatPanel from "@/app/components/ChatPanel";
+import OrderBook, { type BookLevel, type BookEntry } from "@/app/components/OrderBook";
 import { sideColor } from "@/lib/theme";
 
 export default async function MarketPage({
@@ -66,16 +67,38 @@ export default async function MarketPage({
   const isAdmin = currentUserRole === "ADMIN";
   const canPostQuote = !isAdmin;
 
-  // Primary market = the creator's quotes (left column). Everyone else → right.
   const creatorId = contract.createdById;
   const isCreator = creatorId != null && currentUserId === creatorId;
   const canSettle = (isAdmin || isCreator) && contract.status === "OPEN";
-  const creatorQuotes = contract.quotes.filter(
-    (q) => creatorId != null && q.maker.id === creatorId
-  );
-  const otherQuotes = contract.quotes.filter(
-    (q) => !(creatorId != null && q.maker.id === creatorId)
-  );
+
+  // Unified order book: every OPEN quote — the creator's primary market, player
+  // quotes, and resting limit orders — aggregated by price level. The engine
+  // matches across all of them best-price-first, so one book is the truth.
+  const askLevels = new Map<number, BookLevel>();
+  const bidLevels = new Map<number, BookLevel>();
+  const addEntry = (map: Map<number, BookLevel>, price: number, e: BookEntry) => {
+    const lvl = map.get(price) ?? { price, size: 0, hasCreator: false, entries: [] };
+    lvl.size += e.size;
+    lvl.hasCreator = lvl.hasCreator || e.isCreator;
+    lvl.entries.push(e);
+    map.set(price, lvl);
+  };
+  for (const q of contract.quotes) {
+    const base = {
+      quoteId: q.id,
+      makerId: q.maker.id,
+      username: q.maker.username,
+      isCreator: creatorId != null && q.maker.id === creatorId,
+      isYou: q.maker.id === currentUserId,
+    };
+    if (q.ask != null && (q.askSize ?? 0) > 0) addEntry(askLevels, q.ask, { ...base, size: q.askSize! });
+    if (q.bid != null && (q.bidSize ?? 0) > 0) addEntry(bidLevels, q.bid, { ...base, size: q.bidSize! });
+  }
+  const asks = [...askLevels.values()].sort((a, b) => a.price - b.price); // best (lowest) first
+  const bids = [...bidLevels.values()].sort((a, b) => b.price - a.price); // best (highest) first
+
+  // The viewer's own open quotes/resting orders — managed (edit/cancel) below the forms.
+  const myQuotes = contract.quotes.filter((q) => q.maker.id === currentUserId);
 
   // Chat history (newest-50 fetched desc → render oldest-first).
   const chatMessages = [...contract.messages].reverse().map((m) => ({
@@ -181,35 +204,9 @@ export default async function MarketPage({
             marginBottom: "2rem",
           }}
         >
-          {/* ── LEFT COLUMN: LP quotes + hints ── */}
+          {/* ── LEFT COLUMN: unified order book + hints ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <p style={sectionLabel}>Primary Market</p>
-
-            {creatorQuotes.length === 0 ? (
-              <div
-                style={{
-                  padding: "2rem",
-                  textAlign: "center",
-                  background: "#12121a",
-                  border: "1px dashed #2a2a3e",
-                  borderRadius: "0.75rem",
-                  color: "#5a5a72",
-                  fontSize: "0.875rem",
-                }}
-              >
-                No primary market quotes yet.
-              </div>
-            ) : (
-              creatorQuotes.map((q) => (
-                <QuoteCard
-                  key={q.id}
-                  quote={q}
-                  currentUserId={currentUserId}
-                  currentUserRole={currentUserRole}
-                  variant="prominent"
-                />
-              ))
-            )}
+            <OrderBook asks={asks} bids={bids} isAdmin={isAdmin} />
 
             {/* Hints */}
             <div
@@ -230,36 +227,8 @@ export default async function MarketPage({
             </div>
           </div>
 
-          {/* ── RIGHT COLUMN: other quotes + post form ── */}
+          {/* ── RIGHT COLUMN: order forms + your open quotes ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <p style={sectionLabel}>Player Quotes</p>
-
-            {otherQuotes.length === 0 && (
-              <div
-                style={{
-                  padding: "1.25rem",
-                  textAlign: "center",
-                  background: "#12121a",
-                  border: "1px dashed #2a2a3e",
-                  borderRadius: "0.5rem",
-                  color: "#5a5a72",
-                  fontSize: "0.875rem",
-                }}
-              >
-                No player quotes yet.
-              </div>
-            )}
-
-            {otherQuotes.map((q) => (
-              <QuoteCard
-                key={q.id}
-                quote={q}
-                currentUserId={currentUserId}
-                currentUserRole={currentUserRole}
-                variant="regular"
-              />
-            ))}
-
             {canPostQuote && contract.status === "OPEN" && (
               <MarketOrderForm
                 contractId={contractId}
@@ -274,7 +243,7 @@ export default async function MarketPage({
                 contractId={contractId}
                 minPrice={contract.minPrice}
                 maxPrice={contract.maxPrice}
-                mode="sweep"
+                mode="limit"
               />
             )}
 
@@ -285,6 +254,23 @@ export default async function MarketPage({
                 minPrice={contract.minPrice}
                 maxPrice={contract.maxPrice}
               />
+            )}
+
+            {myQuotes.length > 0 && (
+              <>
+                <p style={{ ...sectionLabel, margin: "0.5rem 0 0" }}>
+                  Your Open Quotes &amp; Resting Orders
+                </p>
+                {myQuotes.map((q) => (
+                  <QuoteCard
+                    key={q.id}
+                    quote={q}
+                    currentUserId={currentUserId}
+                    currentUserRole={currentUserRole}
+                    variant="regular"
+                  />
+                ))}
+              </>
             )}
           </div>
         </div>
