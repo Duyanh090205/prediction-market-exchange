@@ -5,8 +5,9 @@
 // cumulative "Total" column and a depth fill behind each row. Research showed
 // this beats the classic center-spread ladder for first-time traders: both
 // lists read naturally top-down, and the cumulative number is visible instead
-// of hover-only. All open quotes (creator ★ + players + resting limit orders)
-// are aggregated by price level; click a row to see who is quoting there.
+// of hover-only. All open quotes (creator + players + resting limit orders)
+// are aggregated by price level; like a real exchange the rows are anonymous —
+// click a row to see who is quoting there.
 
 import { useState } from "react";
 import Link from "next/link";
@@ -24,7 +25,6 @@ export interface BookEntry {
 export interface BookLevel {
   price: number;
   size: number;
-  hasCreator: boolean;
   entries: BookEntry[];
 }
 
@@ -147,9 +147,6 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
                   />
                   <span style={{ position: "relative", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", fontSize: "0.9375rem" }}>
                     {level.price}
-                    {level.hasCreator && (
-                      <span title="Includes the market creator's quote" style={{ color: "#f59e0b", marginLeft: "0.25rem", fontSize: "0.7rem" }}>★</span>
-                    )}
                     {i === 0 && (
                       <span style={{ marginLeft: "0.3rem", fontSize: "0.5625rem", fontWeight: 700, color: "#818cf8" }}>BEST</span>
                     )}
@@ -185,7 +182,7 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
                         <Link href={`/players/${e.makerId}`} style={{ color: "#818cf8", textDecoration: "none" }}>
                           {e.username}
                         </Link>
-                        {e.isCreator && <span style={{ color: "#f59e0b" }}>★ creator</span>}
+                        {e.isCreator && <span style={{ color: "#f59e0b" }}>creator</span>}
                         {e.isYou && <span style={{ color: "#8888a0" }}>(you)</span>}
                         <span style={{ color: "#5a5a72", fontVariantNumeric: "tabular-nums" }}>×{e.size}</span>
                         {isAdmin && !e.isYou && <AdminQuoteDelete quoteId={e.quoteId} makerName={e.username} />}
@@ -273,7 +270,7 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
                 <strong>Spread</strong> = gap between the two best prices; <strong>mid</strong> = its midpoint.
               </p>
               <p style={{ margin: "0 0 0.4rem" }}>
-                ★ = the market creator&apos;s quote. Click any row to see who is quoting there.
+                Click any row to see who is quoting there.
               </p>
               <p style={{ margin: 0 }}>
                 ⚠️ <strong>You can&apos;t trade with yourself</strong> — your orders skip rows marked <strong>you</strong>. If the best price is yours, your order fills at the next level instead.

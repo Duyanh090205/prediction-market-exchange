@@ -78,9 +78,8 @@ export default async function MarketPage({
   const askLevels = new Map<number, BookLevel>();
   const bidLevels = new Map<number, BookLevel>();
   const addEntry = (map: Map<number, BookLevel>, price: number, e: BookEntry) => {
-    const lvl = map.get(price) ?? { price, size: 0, hasCreator: false, entries: [] };
+    const lvl = map.get(price) ?? { price, size: 0, entries: [] };
     lvl.size += e.size;
-    lvl.hasCreator = lvl.hasCreator || e.isCreator;
     lvl.entries.push(e);
     map.set(price, lvl);
   };
