@@ -94,6 +94,12 @@ export default async function MarketPage({
     if (q.ask != null && (q.askSize ?? 0) > 0) addEntry(askLevels, q.ask, { ...base, size: q.askSize! });
     if (q.bid != null && (q.bidSize ?? 0) > 0) addEntry(bidLevels, q.bid, { ...base, size: q.bidSize! });
   }
+  // Time priority within a level: the engine sweeps createdAt-ascending, and
+  // Quote ids are autoincrement (≈ creation order), so ordering each level's
+  // entries by quoteId makes the expanded list match who actually fills first.
+  for (const lvl of [...askLevels.values(), ...bidLevels.values()]) {
+    lvl.entries.sort((a, b) => a.quoteId - b.quoteId);
+  }
   const asks = [...askLevels.values()].sort((a, b) => a.price - b.price); // best (lowest) first
   const bids = [...bidLevels.values()].sort((a, b) => b.price - a.price); // best (highest) first
 
@@ -206,7 +212,7 @@ export default async function MarketPage({
         >
           {/* ── LEFT COLUMN: unified order book + hints ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <OrderBook asks={asks} bids={bids} isAdmin={isAdmin} />
+            <OrderBook asks={asks} bids={bids} isAdmin={isAdmin} minPrice={contract.minPrice} maxPrice={contract.maxPrice} />
 
             {/* Hints */}
             <div

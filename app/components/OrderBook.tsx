@@ -33,18 +33,29 @@ interface OrderBookProps {
   asks: BookLevel[];
   bids: BookLevel[];
   isAdmin: boolean;
+  /** Contract price band — the valid price range for quotes/orders. */
+  minPrice: number;
+  maxPrice: number;
 }
 
 const GREEN = "#22c55e";
 const RED = "#ef4444";
 
-export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
+export default function OrderBook({ asks, bids, isAdmin, minPrice, maxPrice }: OrderBookProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
+  // Objective top-of-book, exactly as real exchanges show it: best bid/ask
+  // include every resting quote — your own too. Self-trade prevention is an
+  // execution concern (your order skips your own quotes; see the "you" badge +
+  // help note), not a reason to personalise the displayed spread.
   const bestAsk = asks[0]?.price ?? null;
   const bestBid = bids[0]?.price ?? null;
   const spread = bestAsk != null && bestBid != null ? bestAsk - bestBid : null;
+  // Crossed/locked book guard: bid ≥ ask shouldn't rest (crossing quotes
+  // auto-match), but a margin-blocked match can leave one — show it, don't
+  // render a meaningless "spread 0" or negative number.
+  const crossed = spread != null && spread <= 0;
   const mid = bestAsk != null && bestBid != null ? (bestAsk + bestBid) / 2 : null;
 
   // Cumulative totals (Polymarket-style "Total" column): row i = everything
@@ -59,6 +70,11 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
   // heavier side reads visibly fuller, surfacing buy/sell imbalance at a glance.
   // (Per-side scaling made every column's last row ~100% and hid the asymmetry.)
   const depthScale = Math.max(askTotal, bidTotal, 1);
+  // Liquidity split — round one side and derive the other as its complement so
+  // the two percentages always sum to exactly 100 (no 69% + 32% = 101% drift).
+  const liqTotal = bidTotal + askTotal;
+  const underPct = liqTotal > 0 ? Math.round((bidTotal / liqTotal) * 100) : 0;
+  const overPct = 100 - underPct;
 
   function column(
     title: string,
@@ -207,11 +223,20 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", padding: "0.75rem 1rem", borderBottom: "1px solid #1a1a2e" }}>
         <p style={{ margin: 0, fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
           Order Book
-          {spread != null && (
-            <span style={{ marginLeft: "0.6rem", color: "#818cf8", textTransform: "none", letterSpacing: 0 }}>
-              spread {spread} · mid {mid}
+          {crossed ? (
+            <span style={{ marginLeft: "0.6rem", color: "#f59e0b", textTransform: "none", letterSpacing: 0 }}>
+              ⚠ crossed book
             </span>
+          ) : (
+            spread != null && (
+              <span style={{ marginLeft: "0.6rem", color: "#818cf8", textTransform: "none", letterSpacing: 0 }}>
+                spread {spread} · mid {mid}
+              </span>
+            )
           )}
+          <span style={{ marginLeft: "0.6rem", color: "#5a5a72", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>
+            range {minPrice}–{maxPrice}
+          </span>
         </p>
 
         {/* "?" — plain-language explainer for first-time traders */}
@@ -290,9 +315,9 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
           {/* Liquidity balance — totals + imbalance bar; the shape at a glance */}
           <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid #1a1a2e", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              <span style={{ color: GREEN }}>UNDER {bidTotal} · {Math.round((bidTotal / (bidTotal + askTotal)) * 100)}%</span>
+              <span style={{ color: GREEN }}>UNDER {bidTotal} · {underPct}%</span>
               <span style={{ color: "#5a5a72" }}>Liquidity</span>
-              <span style={{ color: RED }}>{Math.round((askTotal / (bidTotal + askTotal)) * 100)}% · {askTotal} OVER</span>
+              <span style={{ color: RED }}>{overPct}% · {askTotal} OVER</span>
             </div>
             <div style={{ display: "flex", height: "0.4rem", borderRadius: "9999px", overflow: "hidden", background: "#1a1a2e" }}>
               <span style={{ width: `${(bidTotal / (bidTotal + askTotal)) * 100}%`, background: GREEN }} />
