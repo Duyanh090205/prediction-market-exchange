@@ -55,6 +55,10 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
   bids.reduce((acc, l, i) => (cumBids[i] = acc + l.size), 0);
   const askTotal = cumAsks[cumAsks.length - 1] ?? 0;
   const bidTotal = cumBids[cumBids.length - 1] ?? 0;
+  // Shared depth scale across BOTH sides so the bar lengths are comparable: the
+  // heavier side reads visibly fuller, surfacing buy/sell imbalance at a glance.
+  // (Per-side scaling made every column's last row ~100% and hid the asymmetry.)
+  const depthScale = Math.max(askTotal, bidTotal, 1);
 
   function column(
     title: string,
@@ -62,7 +66,6 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
     rgba: string,
     levels: BookLevel[],
     cums: number[],
-    total: number,
     kind: "ask" | "bid"
   ) {
     return (
@@ -111,7 +114,7 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
             const key = `${kind}:${level.price}`;
             const open = expanded === key;
             const cum = cums[i];
-            const fillPct = Math.max(4, Math.round((cum / Math.max(total, 1)) * 100));
+            const fillPct = Math.max(4, Math.round((cum / depthScale) * 100));
             return (
               <div key={key}>
                 <button
@@ -132,7 +135,7 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
                     overflow: "hidden",
                   }}
                 >
-                  {/* Depth fill behind the row (cumulative share of this side) */}
+                  {/* Depth fill behind the row (cumulative size on the shared scale) */}
                   <span
                     aria-hidden
                     style={{
@@ -199,7 +202,7 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
   }
 
   return (
-    <div style={{ background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem", overflow: "hidden" }}>
+    <div style={{ background: "#12121a", border: "1px solid #1a1a2e", borderRadius: "0.75rem" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", padding: "0.75rem 1rem", borderBottom: "1px solid #1a1a2e" }}>
         <p style={{ margin: 0, fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -251,6 +254,8 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
                 fontSize: "0.75rem",
                 color: "#c4c4d4",
                 lineHeight: 1.55,
+                maxHeight: "min(70vh, 440px)",
+                overflowY: "auto",
               }}
             >
               <p style={{ margin: "0 0 0.5rem", fontWeight: 700, color: "#e4e4ed" }}>How to read this</p>
@@ -280,6 +285,23 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
         </div>
       </div>
 
+      {(bids.length > 0 || asks.length > 0) && askTotal + bidTotal > 0 && (
+        <>
+          {/* Liquidity balance — totals + imbalance bar; the shape at a glance */}
+          <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid #1a1a2e", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              <span style={{ color: GREEN }}>UNDER {bidTotal} · {Math.round((bidTotal / (bidTotal + askTotal)) * 100)}%</span>
+              <span style={{ color: "#5a5a72" }}>Liquidity</span>
+              <span style={{ color: RED }}>{Math.round((askTotal / (bidTotal + askTotal)) * 100)}% · {askTotal} OVER</span>
+            </div>
+            <div style={{ display: "flex", height: "0.4rem", borderRadius: "9999px", overflow: "hidden", background: "#1a1a2e" }}>
+              <span style={{ width: `${(bidTotal / (bidTotal + askTotal)) * 100}%`, background: GREEN }} />
+              <span style={{ width: `${(askTotal / (bidTotal + askTotal)) * 100}%`, background: RED }} />
+            </div>
+          </div>
+        </>
+      )}
+
       {(asks.length === 0 && bids.length === 0) ? (
         <p style={{ padding: "1.5rem 1rem", margin: 0, textAlign: "center", color: "#5a5a72", fontSize: "0.8125rem" }}>
           Empty book — post a quote or a limit order to get it started.
@@ -290,11 +312,13 @@ export default function OrderBook({ asks, bids, isAdmin }: OrderBookProps) {
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             gap: 0,
+            overflow: "hidden",
+            borderRadius: "0 0 0.75rem 0.75rem",
           }}
         >
-          {column("Buy UNDER", GREEN, "rgba(34,197,94,0.16)", bids, cumBids, bidTotal, "bid")}
+          {column("Buy UNDER", GREEN, "rgba(34,197,94,0.16)", bids, cumBids, "bid")}
           <div style={{ borderLeft: "1px solid #1a1a2e" }}>
-            {column("Buy OVER", RED, "rgba(239,68,68,0.16)", asks, cumAsks, askTotal, "ask")}
+            {column("Buy OVER", RED, "rgba(239,68,68,0.16)", asks, cumAsks, "ask")}
           </div>
         </div>
       )}
