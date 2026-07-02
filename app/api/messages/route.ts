@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { emitMessageCreated } from "@/lib/socket-events";
+import { enqueueDiscordDM } from "@/lib/discord/outbox";
 
 const MAX_LEN = 500;
 
@@ -98,6 +99,25 @@ export async function POST(request: NextRequest) {
           linkUrl: `/players/${msg.userId}`,
         },
       });
+
+      // Mirror the DM notice to Discord if the recipient has linked their account.
+      // Best-effort: never fail the message send over a Discord/DB hiccup.
+      try {
+        const recipientDiscord = await prisma.user.findUnique({
+          where: { id: recipientId },
+          select: { discordId: true },
+        });
+        if (recipientDiscord?.discordId) {
+          await enqueueDiscordDM(
+            "NEW_DM_MESSAGE",
+            { fromUsername: msg.user.username, preview: text },
+            recipientDiscord.discordId,
+            { dedupeKey: `dm-msg:${msg.id}` }
+          );
+        }
+      } catch {
+        /* best-effort */
+      }
     }
 
     reqLog.finish(201, user.id);

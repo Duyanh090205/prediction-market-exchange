@@ -5,6 +5,7 @@ import NotificationPanel from "./NotificationPanel";
 import PortfolioLive from "./PortfolioLive";
 import { prisma } from "@/lib/prisma";
 import { calculateAvailableMargin } from "@/lib/margin";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 const ROLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   LIQUIDITY_PROVIDER: {
@@ -28,7 +29,7 @@ export default async function Navbar() {
   const userId = Number(user.id);
 
   const [dbUser, availableMargin] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { balance: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { balance: true, discordId: true } }),
     calculateAvailableMargin(userId),
   ]);
 
@@ -122,6 +123,46 @@ export default async function Navbar() {
             <span>Margin: <strong style={{ color: availableMargin >= 0 ? "#10b981" : "#ef4444", fontWeight: 500 }}>{availableMargin.toLocaleString()}</strong></span>
           </div>
         </div>
+
+        {/* Discord link: not linked → one-click start; linked → manage on /settings/discord */}
+        {dbUser.discordId ? (
+          <Link
+            href="/settings/discord"
+            title="Manage Discord link"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              color: "#a5b4fc",
+              textDecoration: "none",
+              padding: "0.4rem 0.7rem",
+              borderRadius: "0.5rem",
+              border: "1px solid rgba(88,101,242,0.35)",
+              background: "rgba(88,101,242,0.10)",
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
+            Discord
+          </Link>
+        ) : (
+          <a
+            href={withTradingBasePath("/api/discord/oauth/start")}
+            title="Link your Discord account"
+            style={{
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              color: "#fff",
+              textDecoration: "none",
+              padding: "0.45rem 0.75rem",
+              borderRadius: "0.5rem",
+              background: "#5865F2",
+            }}
+          >
+            Link Discord
+          </a>
+        )}
 
         <SignOutButton />
         <PortfolioLive />

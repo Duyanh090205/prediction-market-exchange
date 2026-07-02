@@ -15,6 +15,7 @@ const { parse } = require("url");
 const next = require("next");
 const { Server } = require("socket.io");
 const { decode } = require("next-auth/jwt");
+const { startDiscordDrainer } = require("./lib/discord/drainerRunner");
 
 // Redis adapter is loaded lazily — see lib/socket-redis.ts for production scaling.
 async function maybeAttachRedis(io) {
@@ -265,6 +266,10 @@ app.prepare().then(async () => {
 
   // ── Attach redis adapter for multi-pod scale ─────────────────────────────
   await maybeAttachRedis(io);
+
+  // ── Discord outbox drainer ───────────────────────────────────────────────
+  // Drains DiscordOutbox → channel webhook. No-ops without DISCORD_FEED_WEBHOOK_URL.
+  startDiscordDrainer(prisma);
 
   // ── Start Server ─────────────────────────────────────────────────────────
   httpServer.listen(port, hostname, () => {

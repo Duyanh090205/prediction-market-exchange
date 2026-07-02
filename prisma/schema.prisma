@@ -66,6 +66,11 @@ model User {
   status         UserStatus @default(PENDING)
   approvedAt     DateTime?
   approvedBy     Int?
+  // Discord account link (Phase 2). discordId is the Discord user snowflake;
+  // @unique so one Discord account maps to at most one trading user.
+  discordId       String?   @unique
+  discordUsername String?
+  discordLinkedAt DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -313,6 +318,31 @@ model PasswordResetToken {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+// Transactional outbox for outbound Discord delivery. A domain event (trade,
+// settlement, new market, hint) appends a row POST-COMMIT; a drainer in
+// server.js claims rows with `FOR UPDATE SKIP LOCKED` (multi-pod safe), POSTs an
+// embed to the Discord channel webhook, then marks SENT / retries with backoff /
+// gives up as DEAD. `dedupeKey` makes enqueue idempotent across accidental
+// double-calls; `nextAttemptAt` doubles as a processing lease (a claim pushes it
+// forward, so a crashed claim is reclaimable once the lease expires).
+model DiscordOutbox {
+  id               Int       @id @default(autoincrement())
+  eventType        String
+  channel          String    @default("feed") // "feed" = public channel webhook; "dm" = bot DM to targetDiscordId
+  targetDiscordId  String?   // recipient's Discord snowflake when channel = "dm"
+  payload          Json
+  dedupeKey        String?   @unique
+  status           String    @default("PENDING") // PENDING | PROCESSING | SENT | DEAD
+  attempts         Int       @default(0)
+  lastError        String?   @db.Text
+  nextAttemptAt    DateTime  @default(now())
+  discordMessageId String?
+  createdAt        DateTime  @default(now())
+  sentAt           DateTime?
+
+  @@index([status, nextAttemptAt])
 }
 
 model AdminAuditLog {

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { emitHintCreated } from "@/lib/socket-events";
+import { enqueueDiscordEvent } from "@/lib/discord/outbox";
 
 // POST /api/hints — LIQUIDITY_PROVIDER and ADMIN only
 export async function POST(request: NextRequest) {
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
     // Verify contract exists and is OPEN
     const contract = await prisma.contract.findUnique({
       where: { id: Number(contractId) },
-      select: { id: true, status: true },
+      select: { id: true, status: true, title: true },
     });
 
     if (!contract) {
@@ -85,6 +86,20 @@ export async function POST(request: NextRequest) {
         author: hint.author,
       },
     });
+
+    // Mirror the hint to the Discord channel feed.
+    await enqueueDiscordEvent(
+      "HINT_CREATED",
+      {
+        contractId: hint.contractId,
+        contractTitle: contract.title,
+        content: hint.content,
+        linkUrl: hint.linkUrl,
+        linkLabel: hint.linkLabel,
+        authorName: hint.author.username,
+      },
+      { dedupeKey: `hint:${hint.id}` }
+    );
 
     reqLog.finish(201, user.id, { contractId: hint.contractId });
     return NextResponse.json({ hint }, { status: 201 });

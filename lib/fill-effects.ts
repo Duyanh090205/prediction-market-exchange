@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { emitTradeExecuted, emitQuoteUpdated } from "@/lib/socket-events";
+import { enqueueDiscordEvent, enqueueDiscordDM } from "@/lib/discord/outbox";
 import type { MatchResult, OrderSide } from "@/lib/matching-engine";
 
 export async function broadcastFills(params: {
@@ -27,6 +28,47 @@ export async function broadcastFills(params: {
         message: `Order filled: ${result.totalFilled} total (${fillSummary}) on "${contractTitle}"`,
       },
     });
+
+    // Mirror the fill to the Discord channel feed (one post per order, not per
+    // trade, to avoid spamming on a multi-quote sweep). dedupeKey keyed on the
+    // first fill's unique tradeId so an accidental re-broadcast can't double-post.
+    await enqueueDiscordEvent(
+      "TRADE_EXECUTED",
+      {
+        contractId,
+        contractTitle,
+        side,
+        totalFilled: result.totalFilled,
+        fills: result.fills.map((f) => ({ size: f.size, strike: f.strike })),
+      },
+      { dedupeKey: `order-fill:${result.fills[0].tradeId}` }
+    );
+
+    // Personal DM to the taker — only if they've linked Discord (resolve here so
+    // the bot never needs DB access; unlinked users simply get no DM). Best-effort:
+    // a Discord/DB hiccup here must never fail an already-committed trade.
+    try {
+      const taker = await prisma.user.findUnique({
+        where: { id: takerId },
+        select: { discordId: true },
+      });
+      if (taker?.discordId) {
+        await enqueueDiscordDM(
+          "ORDER_FILLED",
+          {
+            contractId,
+            contractTitle,
+            side,
+            totalFilled: result.totalFilled,
+            fills: result.fills.map((f) => ({ size: f.size, strike: f.strike })),
+          },
+          taker.discordId,
+          { dedupeKey: `dm-fill:${result.fills[0].tradeId}` }
+        );
+      }
+    } catch {
+      /* Discord DM is best-effort — never break the trade path. */
+    }
   }
 
   for (const fill of result.fills) {

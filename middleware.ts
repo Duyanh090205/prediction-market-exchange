@@ -12,6 +12,7 @@ const PUBLIC_PREFIXES = [
   "/api/auth",   // NextAuth internals (kept for signOut helper)
   "/api/health",
   "/api/v1",     // Programmatic API: Bearer-token auth (getApiUser), no Lab cookie/SSO redirect
+  "/api/discord", // Discord OAuth start/callback + unlink: route handlers do their own getLabUser + state check; must not be swallowed by the /connect bridge (which would drop the OAuth ?code)
   "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
 
