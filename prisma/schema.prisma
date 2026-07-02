@@ -121,6 +121,11 @@ model Contract {
   minPrice        Int            @default(0)
   maxPrice        Int            @default(100)
   settlementValue Int?
+  // The creator's committed result, entered and locked at creation so they
+  // cannot pick an outcome after seeing positions. Required for player-created
+  // markets; nullable for admin/legacy markets. Never returned by default —
+  // globally omitted in lib/prisma.ts; creator-facing paths opt back in.
+  lockedResult    Int?
   // The user who created this market. They are its primary market maker and
   // may settle it (alongside any admin). Null for legacy/admin-seeded markets.
   createdById     Int?

@@ -13,7 +13,7 @@ export default async function CreateMarketServerPage() {
   return (
     <>
       <Navbar />
-      <CreateMarketForm />
+      <CreateMarketForm isAdmin={user.role === "ADMIN"} />
     </>
   );
 }

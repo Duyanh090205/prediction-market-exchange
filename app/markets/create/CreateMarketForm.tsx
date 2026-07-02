@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
-export default function CreateMarketPage() {
+export default function CreateMarketPage({ isAdmin = false }: { isAdmin?: boolean }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [minPrice, setMinPrice] = useState("0");
   const [maxPrice, setMaxPrice] = useState("100");
+  const [lockedResult, setLockedResult] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -27,13 +28,37 @@ export default function CreateMarketPage() {
       return;
     }
 
+    // Players must commit the settlement result up front (integrity lock);
+    // admins may leave it blank for markets settled from a future outcome.
+    let locked: number | null = null;
+    if (lockedResult.trim() !== "") {
+      // Number(), not parseInt: parseInt("1e2") === 1 would silently lock the
+      // wrong value; Number("1e2") === 100 and non-integers fail validation.
+      locked = Number(lockedResult);
+      if (!Number.isInteger(locked) || locked < minP || locked > maxP) {
+        setError(`Settlement result must be an integer between ${minP} and ${maxP}.`);
+        setCreating(false);
+        return;
+      }
+    } else if (!isAdmin) {
+      setError("Settlement result is required — it is locked at creation and only visible to you.");
+      setCreating(false);
+      return;
+    }
+
     try {
       const res = await fetch(withTradingBasePath("/api/contracts"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ title, description, minPrice: minP, maxPrice: maxP }),
+        body: JSON.stringify({
+          title,
+          description,
+          minPrice: minP,
+          maxPrice: maxP,
+          ...(locked != null ? { lockedResult: locked } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -135,6 +160,25 @@ export default function CreateMarketPage() {
             <p style={{ margin: "-0.5rem 0 0", fontSize: "0.75rem", color: "#5a5a72" }}>
               Settlement value and all bid/ask prices must fall inside this band.
             </p>
+
+            <div>
+              <label style={labelStyle}>
+                Settlement Result {isAdmin ? "(optional for admins)" : "(required)"}
+              </label>
+              <input
+                type="number"
+                value={lockedResult}
+                onChange={(e) => setLockedResult(e.target.value)}
+                placeholder="The true answer your market settles at"
+                required={!isAdmin}
+                disabled={creating}
+                style={inputStyle}
+              />
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "#f59e0b" }}>
+                🔒 Locked at creation for market integrity. Only you can see it, and the
+                market settles at exactly this value — it cannot be changed later.
+              </p>
+            </div>
 
             {error && <p style={{ color: "#ef4444", fontSize: "0.875rem", margin: 0 }}>{error}</p>}
 

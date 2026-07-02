@@ -13,22 +13,30 @@ interface SettleMarketButtonProps {
   contractId: number;
   minPrice: number;
   maxPrice: number;
+  // The creator's committed result. When set, settlement is locked to this
+  // value: no input is shown, only a confirmation. Only ever passed to the
+  // market's creator (the server hides it from everyone else).
+  lockedResult?: number | null;
 }
 
 export default function SettleMarketButton({
   contractId,
   minPrice,
   maxPrice,
+  lockedResult,
 }: SettleMarketButtonProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const isLocked = lockedResult != null;
 
   async function settle() {
-    const val = parseInt(value, 10);
-    if (isNaN(val) || val < minPrice || val > maxPrice) {
+    const val = isLocked ? lockedResult! : parseInt(value, 10);
+    // Locked mode has no input to validate — the value was band-checked and
+    // frozen at creation; re-validating here could only dead-end the creator.
+    if (!isLocked && (isNaN(val) || val < minPrice || val > maxPrice)) {
       setMsg(`Value must be between ${minPrice} and ${maxPrice}`);
       return;
     }
@@ -82,24 +90,30 @@ export default function SettleMarketButton({
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-      <input
-        type="number"
-        placeholder={`Result (${minPrice}–${maxPrice})`}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        min={minPrice}
-        max={maxPrice}
-        disabled={submitting}
-        style={{
-          padding: "0.3rem 0.5rem",
-          background: "#0a0a0f",
-          border: "1px solid #2a2a3e",
-          borderRadius: "0.25rem",
-          color: "#e4e4ed",
-          fontSize: "0.8125rem",
-          width: "150px",
-        }}
-      />
+      {isLocked ? (
+        <span style={{ fontSize: "0.8125rem", color: "#f59e0b", fontWeight: 600 }}>
+          🔒 Settles at your locked result: {lockedResult}
+        </span>
+      ) : (
+        <input
+          type="number"
+          placeholder={`Result (${minPrice}–${maxPrice})`}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          min={minPrice}
+          max={maxPrice}
+          disabled={submitting}
+          style={{
+            padding: "0.3rem 0.5rem",
+            background: "#0a0a0f",
+            border: "1px solid #2a2a3e",
+            borderRadius: "0.25rem",
+            color: "#e4e4ed",
+            fontSize: "0.8125rem",
+            width: "150px",
+          }}
+        />
+      )}
       <button
         onClick={settle}
         disabled={submitting}

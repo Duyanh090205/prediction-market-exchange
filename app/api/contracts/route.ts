@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { emitContractCreated } from "@/lib/socket-events";
+import { enqueueDiscordEvent } from "@/lib/discord/outbox";
 
 // GET /api/contracts — all OPEN contracts with quotes (including maker role)
 export async function GET(request: NextRequest) {
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, description, minPrice, maxPrice } = body;
+    const { title, description, minPrice, maxPrice, lockedResult } = body;
 
     if (!title || typeof title !== "string" || title.trim().length === 0) {
       reqLog.finish(400, user.id);
@@ -104,6 +105,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Integrity: the creator commits the settlement result up front and cannot
+    // change it after seeing positions. Required for player-created markets;
+    // admins may omit it (e.g. markets on future events settled from the real
+    // outcome). Visible only to the creator (globally omitted in lib/prisma.ts).
+    let locked: number | null = null;
+    if (lockedResult != null && lockedResult !== "") {
+      // Strict: only a JSON number is accepted. Coercing strings/booleans
+      // (Number(" ") === 0, Number(true) === 1) could silently lock a value
+      // the creator never entered.
+      if (typeof lockedResult !== "number" || !Number.isInteger(lockedResult)) {
+        reqLog.finish(400, user.id);
+        return NextResponse.json(
+          { error: "lockedResult must be an integer" },
+          { status: 400 }
+        );
+      }
+      locked = lockedResult;
+      if (locked < minP || locked > maxP) {
+        reqLog.finish(400, user.id);
+        return NextResponse.json(
+          { error: `lockedResult must be within the price band ${minP}–${maxP}` },
+          { status: 400 }
+        );
+      }
+    } else if (user.role !== "ADMIN") {
+      reqLog.finish(400, user.id);
+      return NextResponse.json(
+        {
+          error:
+            "lockedResult is required: enter the result your market will settle at. It is locked at creation and visible only to you.",
+        },
+        { status: 400 }
+      );
+    }
+
     const contract = await prisma.contract.create({
       data: {
         title: title.trim(),
@@ -112,11 +148,26 @@ export async function POST(request: NextRequest) {
         maxPrice: maxP,
         status: "OPEN",
         createdById: Number(user.id),
+        lockedResult: locked,
       },
     });
 
     // Broadcast so every open markets list refreshes live (no manual reload).
     emitContractCreated({ contractId: contract.id, title: contract.title });
+
+    // Announce the new market on the Discord channel feed.
+    await enqueueDiscordEvent(
+      "CONTRACT_CREATED",
+      {
+        contractId: contract.id,
+        title: contract.title,
+        description: contract.description,
+        minPrice: contract.minPrice,
+        maxPrice: contract.maxPrice,
+        creatorName: user.username,
+      },
+      { dedupeKey: `contract-created:${contract.id}` }
+    );
 
     reqLog.finish(201, user.id, { contractId: contract.id });
     return NextResponse.json({ contract }, { status: 201 });

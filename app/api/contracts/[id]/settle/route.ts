@@ -5,6 +5,7 @@ import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { calculatePnl } from "@/lib/pnl";
 import { emitContractSettled } from "@/lib/socket-events";
+import { enqueueDiscordEvent, enqueueDiscordDM } from "@/lib/discord/outbox";
 import { logAdminAction, extractClientIp } from "@/lib/audit";
 import {
   validateIdempotencyHeader,
@@ -47,34 +48,62 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { settlementValue } = body;
+    const { settlementValue: requestedValue } = body;
 
-    if (settlementValue == null || !Number.isInteger(settlementValue)) {
-      reqLog.finish(400, user.id);
-      return NextResponse.json(
-        { error: "settlementValue must be an integer" },
-        { status: 400 }
-      );
-    }
-
-    // Settlement value must fall inside the contract's price band — otherwise
-    // P&L is computed against an impossible outcome (e.g. 500 on a 0–100 band).
+    // Fetch band, ownership and the creator's locked result. lockedResult is
+    // globally omitted (lib/prisma.ts) but an explicit select still returns
+    // it — settlement is where the lock is enforced.
     const bandContract = await prisma.contract.findUnique({
       where: { id: contractId },
-      select: { minPrice: true, maxPrice: true, createdById: true },
+      select: { minPrice: true, maxPrice: true, createdById: true, lockedResult: true },
     });
     if (!bandContract) {
       reqLog.finish(404, user.id);
       return NextResponse.json({ error: "Contract not found" }, { status: 404 });
     }
+    const isAdmin = user.role === "ADMIN";
     // Only an admin or the market's creator may settle it.
-    if (user.role !== "ADMIN" && Number(user.id) !== bandContract.createdById) {
+    if (!isAdmin && Number(user.id) !== bandContract.createdById) {
       reqLog.finish(403, user.id);
       return NextResponse.json(
         { error: "Only an admin or the market creator can settle this market" },
         { status: 403 }
       );
     }
+
+    // Committed-result integrity: a creator settles at exactly the value they
+    // locked at creation (settlementValue may be omitted — the lock is used).
+    // Only admins may settle at a free value (corrections, legacy markets).
+    let settlementValue: number;
+    if (!isAdmin && bandContract.lockedResult != null) {
+      if (requestedValue != null && !Number.isInteger(requestedValue)) {
+        reqLog.finish(400, user.id);
+        return NextResponse.json(
+          { error: "settlementValue must be an integer" },
+          { status: 400 }
+        );
+      }
+      if (requestedValue != null && requestedValue !== bandContract.lockedResult) {
+        reqLog.finish(400, user.id);
+        return NextResponse.json(
+          { error: "This market settles at the result you locked at creation" },
+          { status: 400 }
+        );
+      }
+      settlementValue = bandContract.lockedResult;
+    } else {
+      if (requestedValue == null || !Number.isInteger(requestedValue)) {
+        reqLog.finish(400, user.id);
+        return NextResponse.json(
+          { error: "settlementValue must be an integer" },
+          { status: 400 }
+        );
+      }
+      settlementValue = requestedValue;
+    }
+
+    // Settlement value must fall inside the contract's price band — otherwise
+    // P&L is computed against an impossible outcome (e.g. 500 on a 0–100 band).
     if (
       settlementValue < bandContract.minPrice ||
       settlementValue > bandContract.maxPrice
@@ -132,6 +161,8 @@ export async function POST(
 
       // 2. Settle all OPEN trades with P&L
       const affectedUserIds = new Set<number>();
+      // Per-user net P&L across all their trades on this contract — one DM each.
+      const pnlByUser: Record<number, number> = {};
       for (const trade of contract.trades) {
         const { takerPnl, makerPnl } = calculatePnl(
           trade.takerSide as "OVER" | "UNDER",
@@ -202,6 +233,8 @@ export async function POST(
 
         affectedUserIds.add(trade.takerId);
         affectedUserIds.add(trade.makerId);
+        pnlByUser[trade.takerId] = (pnlByUser[trade.takerId] ?? 0) + takerPnl;
+        pnlByUser[trade.makerId] = (pnlByUser[trade.makerId] ?? 0) + makerPnl;
       }
 
       // 3. Settle contract
@@ -243,7 +276,7 @@ export async function POST(
         tx
       );
 
-      return { affectedUserIds: [...affectedUserIds], tradeCount: contract.trades.length };
+      return { affectedUserIds: [...affectedUserIds], tradeCount: contract.trades.length, title: contract.title, pnlByUser };
     });
 
     await storeIdempotency(adminId, "settle-contract", idempotencyKey, reqBody, {
@@ -254,6 +287,41 @@ export async function POST(
 
     // Emit WebSocket event for real-time UI updates
     emitContractSettled({ contractId, settlementValue });
+
+    // Mirror the settlement to the Discord channel feed.
+    await enqueueDiscordEvent(
+      "CONTRACT_SETTLED",
+      {
+        contractId,
+        contractTitle: result.title,
+        settlementValue,
+        tradesSettled: result.tradeCount,
+      },
+      { dedupeKey: `contract-settled:${contractId}` }
+    );
+
+    // Personal settlement DM to each affected user who has linked Discord —
+    // one DM per user carrying their net P&L on this contract. Best-effort:
+    // a Discord/DB hiccup here must never fail an already-committed settlement.
+    try {
+      const settleUserIds = Object.keys(result.pnlByUser).map(Number);
+      if (settleUserIds.length > 0) {
+        const linked = await prisma.user.findMany({
+          where: { id: { in: settleUserIds }, discordId: { not: null } },
+          select: { id: true, discordId: true },
+        });
+        for (const u of linked) {
+          await enqueueDiscordDM(
+            "SETTLEMENT_RESULT",
+            { contractId, contractTitle: result.title, settlementValue, pnl: result.pnlByUser[u.id] ?? 0 },
+            u.discordId!,
+            { dedupeKey: `dm-settle:${contractId}:${u.id}` }
+          );
+        }
+      }
+    } catch {
+      /* Discord DM is best-effort — never break the settlement response. */
+    }
 
     reqLog.finish(200, user.id, { contractId, outcome: `settled-${settlementValue}` });
     return NextResponse.json({

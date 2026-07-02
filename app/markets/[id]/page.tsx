@@ -30,6 +30,9 @@ export default async function MarketPage({
 
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
+    // lockedResult is globally omitted; opt back in server-side. It is only
+    // rendered (and passed to the client) for the market's creator below.
+    omit: { lockedResult: false },
     include: {
       quotes: {
         where: { status: "OPEN" },
@@ -174,6 +177,9 @@ export default async function MarketPage({
                 contractId={contract.id}
                 minPrice={contract.minPrice}
                 maxPrice={contract.maxPrice}
+                // Locked-mode settle for the creator only; other viewers must
+                // never receive the committed result.
+                lockedResult={isCreator ? contract.lockedResult : undefined}
               />
             )}
             {isAdmin && contract.status === "OPEN" && (
@@ -189,6 +195,12 @@ export default async function MarketPage({
               <> · Settled at <strong style={{ color: "#818cf8" }}>{contract.settlementValue}</strong></>
             )}
           </p>
+          {isCreator && contract.lockedResult != null && contract.status === "OPEN" && (
+            <p style={{ margin: "0.35rem 0 0", fontSize: "0.8125rem", color: "#f59e0b" }}>
+              🔒 Your locked result: <strong>{contract.lockedResult}</strong>
+              <span style={{ color: "#5a5a72" }}> — only you can see this; the market settles at exactly this value.</span>
+            </p>
+          )}
         </div>
 
         {/* Live transaction-price chart */}
