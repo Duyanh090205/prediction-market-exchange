@@ -177,9 +177,12 @@ export default async function MarketPage({
                 contractId={contract.id}
                 minPrice={contract.minPrice}
                 maxPrice={contract.maxPrice}
-                // Locked-mode settle for the creator only; other viewers must
-                // never receive the committed result.
-                lockedResult={isCreator ? contract.lockedResult : undefined}
+                // Locked-mode settle for the creator only. Conditional spread,
+                // not a ternary to undefined: even the prop KEY must not appear
+                // in the serialized RSC payload for non-creators (admin included).
+                {...(isCreator && contract.lockedResult != null
+                  ? { lockedResult: contract.lockedResult }
+                  : {})}
               />
             )}
             {isAdmin && contract.status === "OPEN" && (
