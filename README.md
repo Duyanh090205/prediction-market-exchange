@@ -198,4 +198,4 @@ See [`workflow/`](./workflow/) for full documentation:
 
 ## License
 
-Private — IterLight-Lab
+MIT — see [LICENSE](LICENSE).
