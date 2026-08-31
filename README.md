@@ -1,8 +1,22 @@
-# Trading Game Platform
+# Prediction-Market Exchange
 
-A private prediction market for a group of friends. Players bet on numerical outcomes using binary spread betting — OVER/UNDER a strike price, with fixed ±size coin payouts. Features an instant-execution matching engine with Double Margining and real-time WebSocket updates.
+A working prediction-market exchange, built from the matching engine up: a central limit
+order book with price-time priority, a margin engine that reserves against worst-case
+loss, and atomic settlement.
 
-**Live at**: [marketgame.iterlight.com](https://marketgame.iterlight.com)
+Players quote and trade binary spread contracts - OVER/UNDER a strike price, with fixed
++/-size payouts. Orders execute instantly against the book; there is no manual
+confirmation step anywhere in the execution path.
+
+**~15.6k lines - 103 unit tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
+
+> **Authorship.** I designed and built the matching engine, margin engine and settlement
+> layer - 88% of the codebase. Deployment configuration and the SSO integration were
+> contributed by teammates.
+
+> **Deployment status.** The original hosted deployment has been retired and its domain
+> released. The repository and its test suite are the reference; the setup section below
+> brings the full stack up locally.
 
 ## How It Works
 
@@ -18,11 +32,11 @@ A private prediction market for a group of friends. Players bet on numerical out
 | Role | Who | Balance | Permissions |
 |------|-----|---------|------------|
 | **ADMIN** | Platform manager | 1,000 | Create contracts, settle contracts, create user accounts, generate password reset tokens. **Cannot trade.** |
-| **LIQUIDITY_PROVIDER** | Sam (primary market maker) | 10,000 | Quotes displayed prominently on every market page. Can post hints. Trades like any user. |
+| **LIQUIDITY_PROVIDER** | Designated market maker | 10,000 | Quotes displayed prominently on every market page. Can post hints. Trades like any user. |
 | **USER** | All other players | 1,000 | Post quotes (single-sided OK), take positions, view leaderboard |
 
 - **Admin password reset**: Admin generates a signed JWT token (1h expiry) → sends link to user via Discord → user sets new password. Admin never sees the password.
-- **Sam's role** is what makes his quotes appear large in the left column — enforced by checking `quote.maker.role === LIQUIDITY_PROVIDER`.
+- **The market-maker role** is what makes those quotes appear large in the left column — enforced by checking `quote.maker.role === LIQUIDITY_PROVIDER`.
 - Admin is **strictly blocked** from posting quotes or placing orders at the API layer.
 
 ## Tech Stack
@@ -35,8 +49,6 @@ A private prediction market for a group of friends. Players bet on numerical out
 | Auth | NextAuth.js v5 (JWT strategy) |
 | Real-time | Socket.IO (custom Node.js server) |
 | Styling | Tailwind CSS |
-| Hosting | DigitalOcean App Platform |
-| Domain | marketgame.iterlight.com |
 
 ## Project Structure
 
@@ -90,8 +102,8 @@ workflow/                   # Documentation & planning
 
 ```powershell
 # 1. Clone the repo (if you haven't already)
-git clone https://github.com/IterLight-Lab/trading-game-platform.git
-cd trading-game-platform
+git clone https://github.com/Duyanh090205/prediction-market-exchange.git
+cd prediction-market-exchange
 
 # 2. Start local PostgreSQL (Run this exact command in PowerShell)
 docker run -d --name trading-pg -e POSTGRES_PASSWORD=localpassword -e POSTGRES_DB=trading_game -p 5432:5432 postgres:16-alpine
@@ -103,7 +115,7 @@ docker run -d --name trading-pg -e POSTGRES_PASSWORD=localpassword -e POSTGRES_D
 npm install
 
 # 4. Set up environment variables
-# Copy .env.local from another team member, or create it from .env.example.
+# Create .env.local from .env.example.
 # For local dev, set both TRADING_DATABASE_URL and TRADING_DATABASE_DIRECT_URL
 # to the same direct Postgres URL (no connection pool).
 
