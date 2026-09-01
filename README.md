@@ -12,7 +12,21 @@ To be precise about what "working" claims: this was built as the engine for a pr
 trading game. The matching, margin and settlement paths are complete and tested, but it
 has never taken live order flow.
 
-**~15.6k lines - 103 unit tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
+**~15.6k lines - 103 tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
+
+## Quickstart
+
+```
+npm install
+npx jest                 # 67 unit tests, no database needed
+```
+
+The remaining 36 tests are integration tests gated behind a live Postgres. With one
+available (see Local Development below):
+
+```
+RUN_DB_ITEST=1 npx jest  # all 103
+```
 
 > **Authorship.** I designed and built the matching engine, margin engine and settlement
 > layer - 88% of the codebase. Deployment configuration and the SSO integration were
