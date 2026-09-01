@@ -8,6 +8,10 @@ Players quote and trade binary spread contracts - OVER/UNDER a strike price, wit
 +/-size payouts. Orders execute instantly against the book; there is no manual
 confirmation step anywhere in the execution path.
 
+To be precise about what "working" claims: this was built as the engine for a private
+trading game. The matching, margin and settlement paths are complete and tested, but it
+has never taken live order flow.
+
 **~15.6k lines - 103 unit tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
 
 > **Authorship.** I designed and built the matching engine, margin engine and settlement
