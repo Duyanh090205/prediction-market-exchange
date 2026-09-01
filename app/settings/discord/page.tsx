@@ -27,7 +27,7 @@ export default async function DiscordSettingsPage({
   searchParams: Promise<{ linked?: string; error?: string }>;
 }) {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const dbUser = await prisma.user.findUnique({
     where: { id: Number(user.id) },

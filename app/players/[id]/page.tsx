@@ -14,7 +14,7 @@ export default async function PlayerPage({
   params: Promise<{ id: string }>;
 }) {
   const viewer = await getLabUser();
-  if (!viewer) redirect("/");
+  if (!viewer) redirect("/login");
 
   const { id } = await params;
   const playerId = Number(id);

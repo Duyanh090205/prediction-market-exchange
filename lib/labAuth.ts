@@ -13,6 +13,7 @@
 
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
+import { auth } from "@/auth";
 import { prisma } from "./prisma";
 
 const LAB_JWT_SECRET = process.env.LAB_JWT_SECRET || "";
@@ -36,7 +37,24 @@ interface LabJwtPayload {
 }
 
 export async function getLabUser(): Promise<LabUser | null> {
-  if (!LAB_JWT_SECRET) return null;
+  // Standalone mode. When no Lab SSO secret is configured — which is the case
+  // for any deployment outside the Lab — authentication comes from this app's
+  // own NextAuth credentials session instead. Every existing caller of
+  // getLabUser() keeps working unchanged, because the return shape is identical.
+  if (!LAB_JWT_SECRET) {
+    const session = await auth();
+    const su = session?.user as
+      | { id?: string; email?: string | null; username?: string; role?: string }
+      | undefined;
+    if (!su?.id) return null;
+    return {
+      id: String(su.id),
+      email: su.email ?? "",
+      username: su.username ?? "",
+      role: su.role ?? "USER",
+    };
+  }
+
 
   const cookieStore = await cookies();
   const token = cookieStore.get("lab_session")?.value;

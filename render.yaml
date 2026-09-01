@@ -1,0 +1,52 @@
+# Render blueprint for a standalone deployment.
+#
+# Standalone means: no Lab SSO. Leaving LAB_JWT_SECRET unset is what switches
+# lib/labAuth.ts and middleware.ts over to this app's own NextAuth credentials
+# session. Do not add it here.
+#
+# The database is Neon, not Render Postgres — Render's free Postgres expires
+# after ~90 days, which would quietly kill the deployment.
+services:
+  - type: web
+    name: prediction-market-exchange
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    # start-with-migrate.js runs `prisma migrate deploy` before booting the
+    # server, on the same network path as the app. Build workers often cannot
+    # reach a managed database; the running service can.
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      # Serve at the domain root. Empty is meaningful here: unset would fall
+      # back to "/trading", the path this app used inside the Lab.
+      - key: TRADING_BASE_PATH
+        value: ""
+      - key: NEXT_PUBLIC_TRADING_BASE_PATH
+        value: ""
+      # Required behind Render's proxy, or Auth.js rejects the host.
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: RESET_TOKEN_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      # Set these by hand in the Render dashboard after the first deploy.
+      # NEXTAUTH_URL must be the real public URL — deriving it from the bind
+      # address is what produced the 0.0.0.0:3000 redirect on the old host.
+      - key: NEXTAUTH_URL
+        sync: false
+      # Neon pooled connection string (for the app at runtime).
+      - key: TRADING_DATABASE_URL
+        sync: false
+      # Neon direct connection string (for `prisma migrate deploy`, no pooler).
+      - key: TRADING_DATABASE_DIRECT_URL
+        sync: false

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // per-market chats on each contract page.
 export default async function LobbyChatPage() {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const rows = await prisma.message.findMany({
     where: { contractId: null, recipientId: null }, // lobby only — exclude DMs

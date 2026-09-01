@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default async function AdminDashboard() {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/");
 
   const [userCount, pendingUserCount, contractCount, openTradeCount, recentAudits] = await Promise.all([

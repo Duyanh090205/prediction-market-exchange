@@ -7,7 +7,7 @@ import { sideColor } from "@/lib/theme";
 
 export default async function PositionsPage() {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const userId = Number(user.id);
 

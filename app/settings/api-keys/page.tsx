@@ -6,7 +6,7 @@ import ApiKeysManager from "./ApiKeysManager";
 // /settings/api-keys — any logged-in user can mint keys for their own bots.
 export default async function ApiKeysPage() {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   return (
     <>

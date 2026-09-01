@@ -6,7 +6,7 @@ import Navbar from "@/app/components/Navbar";
 
 export default async function LeaderboardPage() {
   const currentUser = await getLabUser();
-  if (!currentUser) redirect("/");
+  if (!currentUser) redirect("/login");
 
   // Rank by SUM(delta) from SETTLEMENT entries — authoritative P&L source
   const ledgerTotals = await prisma.balanceLedger.groupBy({

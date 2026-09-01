@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 
 const LAB_JWT_SECRET = process.env.LAB_JWT_SECRET || "";
 const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
-const BASE_PATH = process.env.TRADING_BASE_PATH || "/trading";
+const BASE_PATH = process.env.TRADING_BASE_PATH ?? "/trading";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 // Routes that don't need an authenticated Lab session
@@ -15,6 +15,12 @@ const PUBLIC_PREFIXES = [
   "/api/discord", // Discord OAuth start/callback + unlink: route handlers do their own getLabUser + state check; must not be swallowed by the /connect bridge (which would drop the OAuth ?code)
   "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
+
+// Pages an unauthenticated visitor may open in standalone mode. /demo is a
+// read-only view of a live order book, so a reviewer can see the exchange work
+// without creating an account — a login wall is half the reason a demo link
+// gets ignored.
+const PUBLIC_PAGES = ["/demo", "/login", "/register", "/reset-password"];
 
 // Per-request Content-Security-Policy. Production allows Next.js's inline
 // bootstrap scripts via a fresh per-request nonce + 'strict-dynamic' (no
@@ -60,6 +66,7 @@ export async function middleware(req: NextRequest) {
     return res;
   };
 
+
   // Always allow static assets
   if (
     pathname.startsWith("/_next/") ||
@@ -71,6 +78,23 @@ export async function middleware(req: NextRequest) {
   // Allow public API prefixes
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return pass();
+  }
+
+  // Standalone mode. No Lab SSO secret configured means this deployment lives
+  // outside the Lab, so it authenticates with its own NextAuth credentials
+  // session. Middleware only checks that a session cookie is present; getLabUser()
+  // does the real verification on every page and route.
+  if (!LAB_JWT_SECRET) {
+    if (PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+      return pass();
+    }
+    const hasSession =
+      req.cookies.get("authjs.session-token")?.value ??
+      req.cookies.get("__Secure-authjs.session-token")?.value;
+    if (hasSession) return pass();
+    const login = new URL("/login", req.nextUrl.origin);
+    if (pathname !== "/") login.searchParams.set("next", pathname);
+    return withCsp(NextResponse.redirect(login));
   }
 
   const token = req.cookies.get("lab_session")?.value;

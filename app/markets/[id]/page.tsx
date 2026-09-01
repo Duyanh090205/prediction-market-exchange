@@ -22,7 +22,7 @@ export default async function MarketPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const { id } = await params;
   const contractId = Number(id);

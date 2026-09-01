@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const user = await getLabUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const contracts = await prisma.contract.findMany({
     where: { status: "OPEN" },
