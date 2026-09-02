@@ -1,13 +1,30 @@
 "use client";
 
+import { signOut } from "next-auth/react";
+import { useState } from "react";
+
+// Sign out of THIS app first, then decide where to send the visitor.
+//
+// The previous version did neither: it only navigated to a hard-coded Lab
+// login URL. On a standalone deployment that meant the session cookie survived
+// the click — come back and you are still signed in — and the visitor was
+// handed off to a host that has nothing to do with this deployment. Lab is only
+// the auth source when Lab SSO is actually configured.
 export default function SignOutButton() {
+  const [busy, setBusy] = useState(false);
+
   return (
     <button
-      onClick={() => {
-        // Lab is the auth source — redirect there to sign out globally
-        window.location.assign(
-          `${process.env.NEXT_PUBLIC_LAB_LOGIN_URL || "https://lab.iterlight.com/login"}`
-        );
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        // redirect:false so the Lab hop below is the only navigation.
+        await signOut({ redirect: false });
+        // Configured only on a Lab-mounted deployment, where the shared Lab
+        // session has to be dropped too. Standalone lands on the market list,
+        // which reads fine without an account.
+        const labLogin = process.env.NEXT_PUBLIC_LAB_LOGIN_URL;
+        window.location.assign(labLogin || "/");
       }}
       style={{
         padding: "0.375rem 0.875rem",
@@ -16,7 +33,7 @@ export default function SignOutButton() {
         borderRadius: "0.375rem",
         color: "#8888a0",
         fontSize: "0.8125rem",
-        cursor: "pointer",
+        cursor: busy ? "default" : "pointer",
         transition: "all 0.15s",
       }}
       onMouseOver={(e) => {
@@ -28,7 +45,7 @@ export default function SignOutButton() {
         (e.currentTarget as HTMLButtonElement).style.color = "#8888a0";
       }}
     >
-      Sign Out
+      {busy ? "Signing out…" : "Sign Out"}
     </button>
   );
 }
