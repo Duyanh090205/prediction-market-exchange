@@ -11,6 +11,8 @@ services:
     name: prediction-market-exchange
     runtime: node
     plan: free
+    # Rebuild on every push to the default branch.
+    autoDeploy: true
     # --include=dev is required: NODE_ENV=production below makes npm skip
     # devDependencies, and the build tooling (@tailwindcss/postcss, typescript,
     # tailwindcss) lives there. Without it the build dies on a missing postcss
