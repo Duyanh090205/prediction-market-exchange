@@ -92,8 +92,15 @@ export async function middleware(req: NextRequest) {
       req.cookies.get("authjs.session-token")?.value ??
       req.cookies.get("__Secure-authjs.session-token")?.value;
     if (hasSession) return pass();
+    // Someone arriving at the root without an account gets the public read-only
+    // book, not a password box. A reviewer following a link from a CV should see
+    // the exchange working; a login wall is most of the reason such a link goes
+    // unclicked. Deep links still go to /login, then on to where they were headed.
+    if (pathname === "/") {
+      return withCsp(NextResponse.redirect(new URL("/demo", req.nextUrl.origin)));
+    }
     const login = new URL("/login", req.nextUrl.origin);
-    if (pathname !== "/") login.searchParams.set("next", pathname);
+    login.searchParams.set("next", pathname);
     return withCsp(NextResponse.redirect(login));
   }
 
