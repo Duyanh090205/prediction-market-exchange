@@ -12,19 +12,42 @@ declare global {
   }
 }
 
+const input: React.CSSProperties = {
+  width: "100%",
+  marginTop: "0.375rem",
+  padding: "0.625rem 0.75rem",
+  borderRadius: "0.5rem",
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(255,255,255,0.04)",
+  color: "#e4e4ed",
+  fontSize: "0.9rem",
+  fontFamily: "inherit",
+};
+
+const label: React.CSSProperties = {
+  display: "block",
+  textAlign: "left",
+  color: "#8888a0",
+  fontSize: "0.8125rem",
+};
+
 function LoginPageInner() {
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl =
+    searchParams.get("callbackUrl") || searchParams.get("next") || "/";
   const buttonRef = useRef<HTMLDivElement>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Google Sign-In is optional and only rendered when a client id is set. The
+  // password form below is always present, and is what a standalone deployment
+  // runs on — the credentials provider in auth.ts has never gone away.
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
   useEffect(() => {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      setError("Google Sign-In is not configured.");
-      return;
-    }
+    if (!googleClientId) return;
 
     window.handleGoogleCredential = async ({ credential }: { credential: string }) => {
       setLoading(true);
@@ -39,28 +62,20 @@ function LoginPageInner() {
         setLoading(false);
         return;
       }
-      if (result?.url) {
-        window.location.assign(result.url);
-      }
+      window.location.assign(result?.url || callbackUrl);
     };
 
     const initGSI = () => {
-      if (!window.google?.accounts?.id) return;
+      if (!window.google?.accounts?.id || !buttonRef.current) return;
       window.google.accounts.id.initialize({
-        client_id: clientId,
+        client_id: googleClientId,
         callback: window.handleGoogleCredential,
-        auto_select: true,
       });
-      if (buttonRef.current) {
-        window.google.accounts.id.renderButton(buttonRef.current, {
-          theme: "outline",
-          size: "large",
-          width: buttonRef.current.offsetWidth || 320,
-          text: "signin_with",
-          shape: "pill",
-        });
-      }
-      window.google.accounts.id.prompt();
+      window.google.accounts.id.renderButton(buttonRef.current, {
+        theme: "outline",
+        size: "large",
+        shape: "pill",
+      });
     };
 
     if (window.google?.accounts?.id) {
@@ -77,7 +92,24 @@ function LoginPageInner() {
     return () => {
       window.handleGoogleCredential = undefined;
     };
-  }, [callbackUrl]);
+  }, [googleClientId, callbackUrl]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+    });
+    if (!result || result.error) {
+      setError("Those credentials were not accepted.");
+      setLoading(false);
+      return;
+    }
+    window.location.assign(callbackUrl);
+  }
 
   return (
     <main
@@ -87,6 +119,7 @@ function LoginPageInner() {
         placeItems: "center",
         background: "linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%)",
         fontFamily: "system-ui, sans-serif",
+        padding: "1.5rem",
       }}
     >
       <div
@@ -100,22 +133,6 @@ function LoginPageInner() {
           border: "1px solid rgba(255,255,255,0.08)",
         }}
       >
-        <div
-          style={{
-            width: "3rem",
-            height: "3rem",
-            borderRadius: "0.75rem",
-            background: "rgba(99,102,241,0.2)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 1.25rem",
-            fontSize: "1.5rem",
-          }}
-        >
-          📈
-        </div>
-
         <h1
           style={{
             color: "#e4e4ed",
@@ -124,20 +141,77 @@ function LoginPageInner() {
             margin: "0 0 0.375rem",
           }}
         >
-          Trading Platform
+          Sign in
         </h1>
-        <p style={{ color: "#8888a0", fontSize: "0.9rem", margin: "0 0 2rem" }}>
-          Sign in with your IterLight account to continue.
+        <p style={{ color: "#8888a0", fontSize: "0.9rem", margin: "0 0 1.75rem" }}>
+          Or{" "}
+          <a href="/demo" style={{ color: "#a5b4fc" }}>
+            look at an order book
+          </a>{" "}
+          without an account.
         </p>
 
-        {loading ? (
-          <p style={{ color: "#8888a0", fontSize: "0.875rem" }}>Signing in…</p>
-        ) : (
-          <div ref={buttonRef} style={{ display: "flex", justifyContent: "center" }} />
+        <form onSubmit={onSubmit} style={{ display: "grid", gap: "1rem" }}>
+          <div>
+            <label htmlFor="email" style={label}>
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={input}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" style={label}>
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={input}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "0.625rem",
+              borderRadius: "0.5rem",
+              border: "none",
+              background: loading ? "rgba(99,102,241,0.4)" : "rgb(99,102,241)",
+              color: "#fff",
+              fontSize: "0.9rem",
+              fontFamily: "inherit",
+              cursor: loading ? "default" : "pointer",
+            }}
+          >
+            {loading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+
+        {googleClientId && (
+          <div
+            ref={buttonRef}
+            style={{ display: "flex", justifyContent: "center", marginTop: "1rem" }}
+          />
         )}
 
         {error && (
           <p
+            role="alert"
             style={{
               color: "#f87171",
               fontSize: "0.8125rem",
@@ -151,17 +225,11 @@ function LoginPageInner() {
           </p>
         )}
 
-        <p
-          style={{
-            marginTop: "1.75rem",
-            color: "#555570",
-            fontSize: "0.75rem",
-            lineHeight: 1.5,
-          }}
-        >
-          Access is limited to IterLight Lab members.
-          <br />
-          Use the same Google account as your Lab login.
+        <p style={{ marginTop: "1.75rem", color: "#555570", fontSize: "0.75rem" }}>
+          No account?{" "}
+          <a href="/register" style={{ color: "#8888a0" }}>
+            Register
+          </a>
         </p>
       </div>
     </main>
