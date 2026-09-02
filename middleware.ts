@@ -16,11 +16,11 @@ const PUBLIC_PREFIXES = [
   "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
 
-// Pages an unauthenticated visitor may open in standalone mode. /demo is a
-// read-only view of a live order book, so a reviewer can see the exchange work
-// without creating an account — a login wall is half the reason a demo link
-// gets ignored.
-const PUBLIC_PAGES = ["/demo", "/login", "/register", "/reset-password"];
+// Pages an unauthenticated visitor may open in standalone mode. The market list
+// and each market's page are readable without an account — a login wall is half
+// the reason a demo link gets ignored. Those pages gate every write surface on
+// the session themselves; /markets/create is not listed here and stays private.
+const PUBLIC_PAGES = ["/", "/markets", "/demo", "/login", "/register", "/reset-password"];
 
 // Per-request Content-Security-Policy. Production allows Next.js's inline
 // bootstrap scripts via a fresh per-request nonce + 'strict-dynamic' (no
@@ -92,13 +92,6 @@ export async function middleware(req: NextRequest) {
       req.cookies.get("authjs.session-token")?.value ??
       req.cookies.get("__Secure-authjs.session-token")?.value;
     if (hasSession) return pass();
-    // Someone arriving at the root without an account gets the public read-only
-    // book, not a password box. A reviewer following a link from a CV should see
-    // the exchange working; a login wall is most of the reason such a link goes
-    // unclicked. Deep links still go to /login, then on to where they were headed.
-    if (pathname === "/") {
-      return withCsp(NextResponse.redirect(new URL("/demo", req.nextUrl.origin)));
-    }
     const login = new URL("/login", req.nextUrl.origin);
     login.searchParams.set("next", pathname);
     return withCsp(NextResponse.redirect(login));

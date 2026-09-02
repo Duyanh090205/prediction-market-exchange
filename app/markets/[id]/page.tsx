@@ -1,6 +1,6 @@
 import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import ContractRoom from "@/app/components/ContractRoom";
@@ -21,8 +21,8 @@ export default async function MarketPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Readable without an account. Everything that writes is gated on `user`.
   const user = await getLabUser();
-  if (!user) redirect("/login");
 
   const { id } = await params;
   const contractId = Number(id);
@@ -65,8 +65,8 @@ export default async function MarketPage({
 
   if (!contract) notFound();
 
-  const currentUserId = Number(user.id);
-  const currentUserRole = user.role;
+  const currentUserId = user ? Number(user.id) : -1;
+  const currentUserRole = user?.role ?? "GUEST";
   const isAdmin = currentUserRole === "ADMIN";
   // Everyone — including admins — can quote and trade.
   const canPostQuote = true;
@@ -133,6 +133,23 @@ export default async function MarketPage({
     <>
       <Navbar />
       <ContractRoom contractId={contractId} />
+      {!user && (
+        <div
+          style={{
+            maxWidth: "1100px",
+            margin: "1rem auto 0",
+            padding: "0.75rem 1.25rem",
+            background: "rgba(99,102,241,0.10)",
+            border: "1px solid rgba(99,102,241,0.25)",
+            borderRadius: "0.5rem",
+            color: "#a5b4fc",
+            fontSize: "0.875rem",
+          }}
+        >
+          Viewing as a guest — the book, prices and fills are live and read-only.{" "}
+          <a href="/login" style={{ color: "#c7d2fe" }}>Sign in</a> to place orders.
+        </div>
+      )}
       <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {/* Breadcrumb */}
         <div style={{ marginBottom: "1rem" }}>
@@ -239,18 +256,18 @@ export default async function MarketPage({
                 borderRadius: "0.75rem",
               }}
             >
-              <HintPanel
+              {user && <HintPanel
                 hints={contract.hints}
                 contractId={contractId}
                 currentUserId={currentUserId}
                 currentUserRole={currentUserRole}
-              />
+              />}
             </div>
           </div>
 
           {/* ── RIGHT COLUMN: order forms + your open quotes ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {canPostQuote && contract.status === "OPEN" && (
+            {user && canPostQuote && contract.status === "OPEN" && (
               <MarketOrderForm
                 contractId={contractId}
                 minPrice={contract.minPrice}
@@ -259,7 +276,7 @@ export default async function MarketPage({
               />
             )}
 
-            {canPostQuote && contract.status === "OPEN" && (
+            {user && canPostQuote && contract.status === "OPEN" && (
               <MarketOrderForm
                 contractId={contractId}
                 minPrice={contract.minPrice}
@@ -268,7 +285,7 @@ export default async function MarketPage({
               />
             )}
 
-            {canPostQuote && contract.status === "OPEN" && (
+            {user && canPostQuote && contract.status === "OPEN" && (
               <PostQuoteForm
                 contractId={contractId}
                 currentUserRole={currentUserRole}
@@ -277,7 +294,7 @@ export default async function MarketPage({
               />
             )}
 
-            {myQuotes.length > 0 && (
+            {user && myQuotes.length > 0 && (
               <>
                 <p style={{ ...sectionLabel, margin: "0.5rem 0 0" }}>
                   Your Open Quotes &amp; Resting Orders
@@ -298,7 +315,9 @@ export default async function MarketPage({
 
         {/* ── Market Chat ── */}
         <div style={{ marginBottom: "2rem" }}>
-          <ChatPanel contractId={contractId} currentUserId={currentUserId} initialMessages={chatMessages} />
+          {user && (
+            <ChatPanel contractId={contractId} currentUserId={currentUserId} initialMessages={chatMessages} />
+          )}
         </div>
 
         {/* ── Confirmed Trades ── */}
