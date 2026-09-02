@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import ContractRoom from "@/app/components/ContractRoom";
+import MarketPosition from "@/app/components/MarketPosition";
 import GuestBanner from "@/app/components/GuestBanner";
 import PriceChart from "@/app/components/PriceChart";
 import QuoteCard from "@/app/components/QuoteCard";
@@ -16,6 +17,13 @@ import SettleMarketButton from "@/app/components/SettleMarketButton";
 import ChatPanel from "@/app/components/ChatPanel";
 import OrderBook, { type BookLevel, type BookEntry } from "@/app/components/OrderBook";
 import { sideColor } from "@/lib/theme";
+
+// Always render this page fresh. It is a live order book — ContractRoom calls
+// router.refresh() whenever a quote or a fill arrives on the socket — so there
+// is never a correct answer to serve from a cached render. The home page and
+// /demo already carry the same declaration; this page relied on cookies() to
+// make it dynamic by accident.
+export const dynamic = "force-dynamic";
 
 export default async function MarketPage({
   params,
@@ -49,7 +57,9 @@ export default async function MarketPage({
         orderBy: { createdAt: "desc" },
       },
       trades: {
-        where: { status: "OPEN" },
+        // No status filter: settlement flips every trade to SETTLED, and
+        // filtering on OPEN emptied the tape of the one market that has the
+        // most to show — the settled one, where each leg carries realized P&L.
         include: {
           taker: { select: { id: true, username: true } },
           maker: { select: { id: true, username: true } },
@@ -69,6 +79,7 @@ export default async function MarketPage({
   const currentUserId = user ? Number(user.id) : -1;
   const currentUserRole = user?.role ?? "GUEST";
   const isAdmin = currentUserRole === "ADMIN";
+  const isSettled = contract.status === "SETTLED";
   // Everyone — including admins — can quote and trade.
   const canPostQuote = true;
 
@@ -120,6 +131,14 @@ export default async function MarketPage({
     body: m.body,
     createdAt: m.createdAt.toISOString(),
   }));
+
+  // Dates are rendered on the server with a fixed locale: toLocaleDateString()
+  // with no locale resolves differently on the server and in the browser, which
+  // React reports as a hydration mismatch.
+  const dateLabel = (d: Date) =>
+    d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  const settlesLabel = contract.settlesAt ? dateLabel(contract.settlesAt) : null;
+  const settledLabel = contract.settledAt ? dateLabel(contract.settledAt) : null;
 
   const sectionLabel: React.CSSProperties = {
     fontSize: "0.6875rem",
@@ -196,8 +215,14 @@ export default async function MarketPage({
           </p>
           <p style={{ margin: "0.5rem 0 0", fontSize: "0.8125rem", color: "#5a5a72" }}>
             Price band: <strong style={{ color: "#818cf8" }}>{contract.minPrice}</strong> – <strong style={{ color: "#818cf8" }}>{contract.maxPrice}</strong>
+            {contract.status === "OPEN" && contract.settlesAt != null && (
+              <> · Settles <strong style={{ color: "#818cf8" }}>{settlesLabel}</strong></>
+            )}
             {contract.status === "SETTLED" && contract.settlementValue != null && (
-              <> · Settled at <strong style={{ color: "#818cf8" }}>{contract.settlementValue}</strong></>
+              <>
+                {" "}· Settled at <strong style={{ color: "#f59e0b" }}>{contract.settlementValue}</strong>
+                {contract.settledAt != null && <> on <strong style={{ color: "#818cf8" }}>{settledLabel}</strong></>}
+              </>
             )}
           </p>
           {isCreator && contract.lockedResult != null && contract.status === "OPEN" && (
@@ -261,6 +286,26 @@ export default async function MarketPage({
 
           {/* ── RIGHT COLUMN: order forms + your open quotes ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {isSettled && (
+              <div
+                style={{
+                  padding: "1.25rem",
+                  background: "rgba(245,158,11,0.06)",
+                  border: "1px solid rgba(245,158,11,0.25)",
+                  borderRadius: "0.75rem",
+                }}
+              >
+                <p style={{ ...sectionLabel, color: "#f59e0b" }}>Settled</p>
+                <p style={{ margin: 0, fontSize: "0.875rem", color: "#8888a0", lineHeight: 1.6 }}>
+                  This market closed at{" "}
+                  <strong style={{ color: "#f59e0b" }}>{contract.settlementValue}</strong>. Every
+                  open position was marked against that value in one transaction:
+                  each trade below carries the P&amp;L it realized, and the same
+                  amounts moved through the players&apos; balances and the ledger.
+                </p>
+              </div>
+            )}
+
             {!user && contract.status === "OPEN" && (
               <div
                 style={{
@@ -301,6 +346,8 @@ export default async function MarketPage({
                 </a>
               </div>
             )}
+
+            {user && <MarketPosition userId={currentUserId} contractId={contractId} />}
 
             {user && canPostQuote && contract.status === "OPEN" && (
               <MarketOrderForm
@@ -375,6 +422,11 @@ export default async function MarketPage({
             }}
           >
             Confirmed Trades ({contract.trades.length})
+            {isSettled && (
+              <span style={{ color: "#f59e0b", marginLeft: "0.5rem" }}>
+                · settled at {contract.settlementValue} · P&amp;L is realized and paid
+              </span>
+            )}
           </p>
 
           {contract.trades.length === 0 ? (
@@ -392,7 +444,7 @@ export default async function MarketPage({
               >
                 <thead>
                   <tr>
-                    {["Player", "Side", "Strike", "Size", "Time", ...(isAdmin ? [""] : [])].map((h) => (
+                    {["Player", "Side", "Strike", "Size", ...(isSettled ? ["P&L"] : []), "Time", ...(isAdmin ? [""] : [])].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -418,9 +470,20 @@ export default async function MarketPage({
                     // maker holds the opposite side.
                     const overUser = t.takerSide === "OVER" ? t.taker : t.maker;
                     const underUser = t.takerSide === "OVER" ? t.maker : t.taker;
+                    // Realized P&L belongs to whichever side of the trade the
+                    // player was on, not to the OVER/UNDER label.
+                    const overIsTaker = t.takerSide === "OVER";
                     const legs = [
-                      { user: overUser, side: "OVER" as const },
-                      { user: underUser, side: "UNDER" as const },
+                      {
+                        user: overUser,
+                        side: "OVER" as const,
+                        pnl: overIsTaker ? t.takerPnl : t.makerPnl,
+                      },
+                      {
+                        user: underUser,
+                        side: "UNDER" as const,
+                        pnl: overIsTaker ? t.makerPnl : t.takerPnl,
+                      },
                     ];
                     return legs.map((leg, i) => {
                       const c = sideColor(leg.side);
@@ -439,6 +502,19 @@ export default async function MarketPage({
                           <td style={{ ...cell, fontWeight: 700, color: c.fg }}>{leg.side}</td>
                           <td style={{ ...cell, color: "#818cf8", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{t.strike}</td>
                           <td style={{ ...cell, color: "#e4e4ed", fontVariantNumeric: "tabular-nums" }}>{t.size}</td>
+                          {isSettled && (
+                            <td
+                              style={{
+                                ...cell,
+                                fontWeight: 700,
+                                fontVariantNumeric: "tabular-nums",
+                                color:
+                                  leg.pnl == null ? "#5a5a72" : leg.pnl > 0 ? "#22c55e" : leg.pnl < 0 ? "#ef4444" : "#8888a0",
+                              }}
+                            >
+                              {leg.pnl == null ? "—" : leg.pnl > 0 ? `+${leg.pnl}` : String(leg.pnl)}
+                            </td>
+                          )}
                           <td style={{ ...cell, color: "#5a5a72", fontSize: "0.75rem", whiteSpace: "nowrap" }}>
                             {first ? new Date(t.createdAt).toLocaleString() : ""}
                           </td>

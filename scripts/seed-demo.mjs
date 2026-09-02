@@ -20,7 +20,10 @@
  *   APP_URL   the deployment to trade against
  *             (default https://prediction-market-exchange.onrender.com)
  *   DEMO_PASSWORD   reviewer account password (default demo-trader-2027)
- *   TAPE_HOURS      how far back to spread the tape (default 6)
+ *   SEED_MAKER_PASSWORD  password for the seeded market makers, so the script
+ *                        can sign in as one and settle a market through the
+ *                        app's own route (default seed-maker-2027)
+ *   TAPE_DAYS       how far back to spread the tape (default 4)
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -49,7 +52,8 @@ const prisma = new PrismaClient();
 const APP_URL = (process.env.APP_URL || "https://prediction-market-exchange.onrender.com").replace(/\/$/, "");
 const REVIEWER_EMAIL = "demo@example.com";
 const REVIEWER_PASSWORD = process.env.DEMO_PASSWORD || "demo-trader-2027";
-const TAPE_HOURS = Number(process.env.TAPE_HOURS || 6);
+const TAPE_DAYS = Number(process.env.TAPE_DAYS || 4);
+const MAKER_PASSWORD = process.env.SEED_MAKER_PASSWORD || "seed-maker-2027";
 const KEY_LABEL = "demo seed";
 
 // Mirrors lib/apiAuth.ts — 12-char public prefix, SHA-256 of the whole key.
@@ -64,6 +68,34 @@ function generateApiKey() {
   };
 }
 
+/**
+ * Every account must satisfy the invariant the settlement route checks before
+ * it commits: `balance` equals the sum of that user's BalanceLedger deltas.
+ *
+ * The seed used to set an opening balance directly and write no ledger row, so
+ * seeded accounts were out of balance from the moment they existed and any
+ * attempt to settle a seeded market aborted with a balance integrity mismatch.
+ * Nothing surfaced it because nothing had ever settled one.
+ */
+async function reconcileOpeningBalance(user) {
+  const agg = await prisma.balanceLedger.aggregate({
+    where: { userId: user.id },
+    _sum: { delta: true },
+  });
+  const ledgered = agg._sum.delta ?? 0;
+  if (ledgered === user.balance) return false;
+  await prisma.balanceLedger.create({
+    data: {
+      userId: user.id,
+      delta: user.balance - ledgered,
+      balanceAfter: user.balance,
+      eventType: "INITIAL_SEED",
+      note: "Seed opening balance",
+    },
+  });
+  return true;
+}
+
 async function upsertUser({ username, email, role, balance, password }) {
   const hashedPassword = await bcrypt.hash(
     password || randomBytes(24).toString("base64url"),
@@ -71,7 +103,10 @@ async function upsertUser({ username, email, role, balance, password }) {
   );
   return prisma.user.upsert({
     where: { email },
-    update: { status: "ACTIVE" },
+    // Reset the password on a rerun too: the script signs in as a maker to
+    // settle a market through the app's own route, so it has to know the
+    // credential it created on a previous run.
+    update: { status: "ACTIVE", ...(password ? { hashedPassword } : {}) },
     create: { username, email, hashedPassword, role, status: "ACTIVE", balance },
   });
 }
@@ -104,6 +139,69 @@ async function placeOrder(key, body) {
   });
   const text = await res.text();
   return { status: res.status, body: text.slice(0, 200) };
+}
+
+/**
+ * Sign in as a seeded account through the app's own NextAuth credentials
+ * provider and return a cookie header.
+ *
+ * Settlement is cookie-authenticated (the /api/v1 bearer namespace does not
+ * expose it), so the alternative was writing settled trades, P&L and ledger
+ * rows into the database by hand. That would fabricate exactly the evidence
+ * this deployment exists to demonstrate. This drives the real endpoint.
+ */
+async function loginAs(email, password) {
+  const jar = new Map();
+  const absorb = (res) => {
+    for (const c of res.headers.getSetCookie?.() ?? []) {
+      const kv = c.split(";")[0];
+      const i = kv.indexOf("=");
+      if (i > 0) jar.set(kv.slice(0, i).trim(), kv.slice(i + 1).trim());
+    }
+  };
+  const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+
+  const csrfRes = await fetch(`${APP_URL}/api/auth/csrf`, { headers: { cookie: cookie() } });
+  absorb(csrfRes);
+  const { csrfToken } = await csrfRes.json();
+
+  const res = await fetch(`${APP_URL}/api/auth/callback/credentials`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: APP_URL,
+      cookie: cookie(),
+    },
+    body: new URLSearchParams({ email, password, csrfToken, json: "true" }),
+  });
+  absorb(res);
+
+  const header = cookie();
+  if (!/session-token=/.test(header)) {
+    const where = res.headers.get("location") || "(no redirect)";
+    throw new Error(
+      `sign-in failed for ${email}: status ${res.status}, redirected to ${where}`
+    );
+  }
+  return header;
+}
+
+async function settleContract(cookie, contractId, settlementValue) {
+  const res = await fetch(`${APP_URL}/api/contracts/${contractId}/settle`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: APP_URL,
+      cookie,
+      "Idempotency-Key": uuidv7(),
+    },
+    // No settlementValue in the body: the creator settles at the value they
+    // locked at creation, and the route enforces that.
+    body: JSON.stringify(settlementValue == null ? {} : { settlementValue }),
+  });
+  const text = await res.text();
+  return { status: res.status, body: text.slice(0, 240) };
 }
 
 // ── The book ────────────────────────────────────────────────────────────────
@@ -140,15 +238,73 @@ function ladder({ mid, tick }) {
 // negative hits bids) paired with a size. Fifteen orders that drift up, get
 // sold into, then chop — enough for the tape and the transaction-price chart to
 // show a session rather than one print repeated.
-const PATH = [1, -1, 2, 1, -2, 1, -1, 3, -1, 2, -2, 1, -1, 2, -1];
-const SIZES = [4, 3, 2, 5, 3, 2, 4, 3, 2, 5, 3, 4, 2, 3, 2];
+const PATH = [
+  1, -1, 2, 1, -2, 1, -1, 3, -1, 2,
+  -2, 1, -1, 2, -1, 1, 2, -1, -2, 1,
+];
+const SIZES = [
+  4, 3, 2, 5, 3, 2, 4, 3, 2, 5,
+  3, 4, 2, 3, 2, 6, 3, 4, 2, 5,
+];
 
-function tradePlan({ mid, tick }) {
+// Orders are described by how deep into the book they reach, not by an absolute
+// price: the book is re-centred between rounds, so the price a given order pays
+// depends on where the market had moved by then.
+function tradePlan() {
   return PATH.map((depth, i) => ({
     side: depth > 0 ? "OVER" : "UNDER",
     size: SIZES[i],
-    limitPrice: mid + tick * depth,
+    depth,
   }));
+}
+
+// Trading happens in rounds. Between them the makers cancel and re-post around
+// wherever the market got to, which is the only reason the price moves at all:
+// with a static book every order fills at the same touch and the transaction
+// chart comes out as a two-level square wave — visibly a script.
+const ROUNDS = 4;
+
+/**
+ * Work the plan against `contract`, re-centring the book between rounds.
+ * Returns { filled, rejected, mid } — the mid the market ended on.
+ */
+async function tradeSession(contract, spec, makers, keys, startMid) {
+  const plan = tradePlan();
+  const per = Math.ceil(plan.length / ROUNDS);
+  let mid = startMid;
+  let filled = 0, rejected = 0;
+
+  for (let r = 0; r < ROUNDS; r++) {
+    // One pass while trading, so the touch is thin enough to be consumed and
+    // the price walks within a round too. Full depth is restored at the end.
+    await clearSeedQuotes(contract.id, makers);
+    await postLadder(contract.id, { ...spec, mid }, makers, 1);
+
+    let netOver = 0;
+    for (const [i, p] of plan.slice(r * per, (r + 1) * per).entries()) {
+      const { user, key } = keys[(contract.id + r * per + i) % keys.length];
+      const limitPrice = mid + spec.tick * p.depth;
+      const res = await placeOrder(key, {
+        contractId: contract.id, type: "LIMIT", side: p.side, size: p.size, limitPrice,
+      });
+      if (res.status === 200 || res.status === 201) {
+        filled++;
+        netOver += p.side === "OVER" ? p.size : -p.size;
+      } else {
+        rejected++;
+        console.log(`    ${user.username} ${p.side} ${p.size}@${limitPrice} -> ${res.status} ${res.body}`);
+      }
+    }
+
+    // The makers follow the flow they just absorbed: bought into, they mark up.
+    const step = netOver > 0 ? 1 : netOver < 0 ? -1 : 0;
+    const next = mid + spec.tick * step;
+    // Stay inside the band with room for six levels either side.
+    const room = spec.tick * (LEVELS + 1);
+    mid = Math.min(Math.max(next, spec.min + room), spec.max - room);
+  }
+
+  return { filled, rejected, mid };
 }
 
 const MARKETS = [
@@ -156,24 +312,42 @@ const MARKETS = [
     title: "How many home runs will be hit league-wide on opening day?",
     description:
       "Binary spread market. Quote a price you would both buy and sell at; settlement pays the distance between your fill and the true answer, capped at the contract size.",
-    min: 0, max: 200, mid: 100, tick: 4,
+    min: 0, max: 200, mid: 100, tick: 4, settlesInDays: 34,
   },
   {
     title: "Combined points in the Super Bowl",
     description: "Over/under on total points scored by both teams.",
-    min: 0, max: 120, mid: 46, tick: 2,
+    min: 0, max: 120, mid: 46, tick: 2, settlesInDays: 61,
   },
   {
     title: "US CPI year-over-year print, next release (basis points)",
     description: "Headline CPI YoY, quoted in basis points. 310 means 3.10%.",
-    min: 0, max: 800, mid: 307, tick: 5,
+    min: 0, max: 800, mid: 307, tick: 5, settlesInDays: 12,
   },
   {
     title: "Number of named Atlantic storms this season",
     description: "Settles on the final count published at end of season.",
-    min: 0, max: 40, mid: 17, tick: 1,
+    min: 0, max: 40, mid: 17, tick: 1, settlesInDays: 89,
   },
 ];
+
+// One market that has already run its course. It is the only place the
+// settlement engine is visible from outside: a closing value, P&L realized
+// against it on every position, and the balances and ledger entries that moved
+// with them. It is settled through the app's own route by the account that
+// created it, at the result that account locked at creation — so the integrity
+// rule (commit the outcome before you can see the positions) is exercised too,
+// not just described.
+const SETTLED_MARKET = {
+  title: "US CPI year-over-year print, July 2026 release (basis points)",
+  description:
+    "Headline CPI YoY, quoted in basis points. 310 means 3.10%. Closed on the BLS release; the creator committed the settlement value at creation and could not change it afterwards.",
+  min: 0, max: 800, mid: 296, tick: 4,
+  lockedResult: 289,
+  // Traded over this window, then settled at the end of it.
+  tradedDaysAgo: 11,
+  settledDaysAgo: 6,
+};
 
 /**
  * Cancel the seed makers' resting quotes on a market that already exists.
@@ -202,10 +376,10 @@ function levelTarget(lvl) {
   return lvl.sizes.reduce((a, b) => a + b, 0) * LADDER_PASSES;
 }
 
-async function postLadder(contractId, spec, makers) {
+async function postLadder(contractId, spec, makers, passes = LADDER_PASSES) {
   const levels = ladder(spec);
   let posted = 0;
-  for (let pass = 0; pass < LADDER_PASSES; pass++) {
+  for (let pass = 0; pass < passes; pass++) {
     for (const lvl of levels) {
       for (const [n, maker] of makers.entries()) {
         await prisma.quote.create({
@@ -236,6 +410,22 @@ async function postLadder(contractId, spec, makers) {
  */
 async function replenishLadder(contractId, spec, makers) {
   const levels = ladder(spec);
+  // Anything resting away from the final grid is left over from an earlier
+  // round at an older mid; cancel it so the displayed book is one clean ladder.
+  const keep = new Set(levels.flatMap((l) => [l.bid, l.ask]));
+  const stale = await prisma.quote.findMany({
+    where: { contractId, status: "OPEN", makerId: { in: makers.map((m) => m.id) } },
+    select: { id: true, bid: true, ask: true },
+  });
+  const staleIds = stale
+    .filter((q) => (q.bid != null && !keep.has(q.bid)) || (q.ask != null && !keep.has(q.ask)))
+    .map((q) => q.id);
+  if (staleIds.length) {
+    await prisma.quote.updateMany({
+      where: { id: { in: staleIds } },
+      data: { status: "CANCELLED" },
+    });
+  }
   const open = await prisma.quote.findMany({
     where: { contractId, status: "OPEN" },
     select: { bid: true, bidSize: true, ask: true, askSize: true },
@@ -269,13 +459,19 @@ async function replenishLadder(contractId, spec, makers) {
 }
 
 /**
- * Spread this run's fills back over TAPE_HOURS, preserving their order.
+ * Spread this run's fills back over a window, preserving their order.
  *
- * Only the timestamps move. Without this every print carries the same clock
- * time and the transaction-price chart collapses to a single vertical line.
+ * Only the timestamps move. Every order in this script executes within the
+ * minute it runs, so without this the whole price history sits inside a few
+ * seconds — a chart whose x-axis spans 3:48:22 to 3:48:26 is a screenshot of a
+ * seed script, not of a market. The prices, sizes and counterparties are
+ * whatever the engine produced.
+ *
+ * @param endMs when the last print should land (default: a few minutes ago)
+ * @param days  how far back the first print should reach
  */
-async function spreadTape(contractIds, since) {
-  const windowMs = TAPE_HOURS * 60 * 60 * 1000;
+async function spreadTape(contractIds, since, { days = TAPE_DAYS, endMs = null } = {}) {
+  const windowMs = days * 24 * 60 * 60 * 1000;
   let moved = 0;
 
   for (const contractId of contractIds) {
@@ -286,9 +482,9 @@ async function spreadTape(contractIds, since) {
     });
     if (trades.length === 0) continue;
 
-    // Even spacing with jitter, ending a few minutes before now so the last
-    // print does not sit exactly on the seed time.
-    const end = Date.now() - 4 * 60 * 1000;
+    // Even spacing with jitter, ending before now so the last print does not
+    // sit exactly on the seed time.
+    const end = endMs ?? Date.now() - 4 * 60 * 1000;
     const step = windowMs / (trades.length + 1);
     const stamps = trades
       .map((_, i) => {
@@ -323,6 +519,82 @@ async function spreadTape(contractIds, since) {
   return moved;
 }
 
+/**
+ * Create, trade and settle the one market that has already run its course.
+ *
+ * Everything goes through the running app: the orders through the bearer API,
+ * the settlement through the cookie-authenticated settle route as the account
+ * that created the market, at the value that account locked at creation. The
+ * P&L on each trade, the balance movements and the ledger rows are the engine's
+ * own output. Only two timestamps are rewritten afterwards — the tape and the
+ * settlement stamp — for the same reason the open markets' tape is rewritten.
+ */
+async function seedSettledMarket({ makers, keys, since }) {
+  const spec = SETTLED_MARKET;
+  const found = await prisma.contract.findFirst({ where: { title: spec.title } });
+  if (found && found.status === "SETTLED") {
+    const n = await prisma.trade.count({ where: { contractId: found.id } });
+    console.log(`Settled market already present: #${found.id} at ${found.settlementValue} (${n} trades).`);
+    return;
+  }
+
+  const creator = makers[0];
+  const contract =
+    found ??
+    (await prisma.contract.create({
+      data: {
+        title: spec.title,
+        description: spec.description,
+        status: "OPEN",
+        minPrice: spec.min,
+        maxPrice: spec.max,
+        isDemoSeed: true,
+        lockedResult: spec.lockedResult,
+        settlesAt: daysAgo(spec.settledDaysAgo),
+        createdById: creator.id,
+      },
+    }));
+
+  const { filled, rejected } = await tradeSession(contract, spec, makers, keys, spec.mid);
+
+  // The tape has to sit before the settlement, not around now.
+  const settledAt = daysAgo(spec.settledDaysAgo);
+  const moved = await spreadTape([contract.id], since, {
+    days: Math.max(1, spec.tradedDaysAgo - spec.settledDaysAgo),
+    endMs: settledAt.getTime() - 60 * 60 * 1000,
+  });
+
+  const cookie = await loginAs(creator.email, MAKER_PASSWORD);
+  // No value passed: the route settles at the creator's locked result and
+  // rejects anything else, which is the property worth demonstrating.
+  const res = await settleContract(cookie, contract.id, null);
+  if (res.status !== 200 && res.status !== 201) {
+    throw new Error(`settle failed: ${res.status} ${res.body}`);
+  }
+  await prisma.contract.update({
+    where: { id: contract.id },
+    data: { settledAt },
+  });
+
+  const after = await prisma.contract.findUnique({
+    where: { id: contract.id },
+    select: { status: true, settlementValue: true },
+  });
+  const trades = await prisma.trade.count({ where: { contractId: contract.id } });
+  const paid = await prisma.balanceLedger.count({
+    where: { contractId: contract.id, eventType: "SETTLEMENT" },
+  });
+  console.log(
+    `Settled market ${contract.id}: ${after.status} at ${after.settlementValue} · ` +
+    `${trades} trades (${filled} orders accepted, ${rejected} rejected, ${moved} restamped) · ` +
+    `${paid} ledger entries written`
+  );
+}
+
+const c_isOpen = (c) => c.status === "OPEN";
+const daysFromNow = (d) => new Date(Date.now() + d * 24 * 60 * 60 * 1000);
+const daysAgo = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
+
 async function main() {
   const since = new Date(Date.now() - 60 * 1000);
 
@@ -330,25 +602,42 @@ async function main() {
     username: "demo", email: REVIEWER_EMAIL, role: "USER",
     balance: 1000, password: REVIEWER_PASSWORD,
   });
-  const mm1 = await upsertUser({ username: "quotes_north", email: "mm1@demo.invalid", role: "LIQUIDITY_PROVIDER", balance: 20000 });
-  const mm2 = await upsertUser({ username: "quotes_south", email: "mm2@demo.invalid", role: "LIQUIDITY_PROVIDER", balance: 20000 });
+  const mm1 = await upsertUser({ username: "quotes_north", email: "mm1@demo.invalid", role: "LIQUIDITY_PROVIDER", balance: 20000, password: MAKER_PASSWORD });
+  const mm2 = await upsertUser({ username: "quotes_south", email: "mm2@demo.invalid", role: "LIQUIDITY_PROVIDER", balance: 20000, password: MAKER_PASSWORD });
   const makers = [mm1, mm2];
   const takers = [];
   for (const n of ["r_okafor", "j_lindqvist", "m_tanaka", "p_varga", "s_adeyemi"]) {
     takers.push(await upsertUser({ username: n, email: `${n}@demo.invalid`, role: "USER", balance: 5000 }));
   }
-  console.log(`Users ready: ${reviewer.username} + 2 makers + ${takers.length} takers`);
+  let seeded = 0;
+  for (const u of [reviewer, mm1, mm2, ...takers]) {
+    if (await reconcileOpeningBalance(u)) seeded++;
+  }
+  console.log(
+    `Users ready: ${reviewer.username} + 2 makers + ${takers.length} takers ` +
+    `(${seeded} opening-balance ledger entries written)`
+  );
 
   // Seeded rows are identified by a column, not by a marker inside text a
   // visitor reads. The old `<!-- __demo_seed_v2 -->` suffix on `description`
   // rendered verbatim under the title of every market on the public site.
   let created = [];
-  const existing = await prisma.contract.findMany({ where: { isDemoSeed: true } });
+  const existing = (await prisma.contract.findMany({ where: { isDemoSeed: true } }))
+    .filter(c_isOpen);
   if (existing.length) {
     console.log(`Markets already present (${existing.length}) — reusing them.`);
     created = existing
       .map((c) => ({ contract: c, spec: MARKETS.find((m) => m.title === c.title) }))
       .filter((x) => x.spec);
+    // Markets seeded before settlesAt existed have no date on them.
+    for (const { contract, spec } of created) {
+      if (!contract.settlesAt) {
+        await prisma.contract.update({
+          where: { id: contract.id },
+          data: { settlesAt: daysFromNow(spec.settlesInDays) },
+        });
+      }
+    }
     // Replace whatever book is resting with the current ladder, so a rerun
     // converges on one price grid instead of layering a second one over it.
     for (const { contract, spec } of created) {
@@ -366,6 +655,7 @@ async function main() {
         minPrice: m.min,
         maxPrice: m.max,
         isDemoSeed: true,
+        settlesAt: daysFromNow(m.settlesInDays),
         createdById: (i % 2 === 0 ? mm1 : mm2).id,
       },
     });
@@ -380,28 +670,32 @@ async function main() {
 
   console.log(`\nPlacing orders against ${APP_URL} …`);
   let filled = 0, rejected = 0;
+  const finalMid = new Map();
   for (const { contract, spec } of created) {
-    for (const [i, p] of tradePlan(spec).entries()) {
-      const { user, key } = keys[(contract.id + i) % keys.length];
-      const r = await placeOrder(key, {
-        contractId: contract.id, type: "LIMIT", ...p,
-      });
-      if (r.status === 200 || r.status === 201) { filled++; }
-      else { rejected++; console.log(`    ${user.username} ${p.side} ${p.size}@${p.limitPrice} -> ${r.status} ${r.body}`); }
-    }
+    const r = await tradeSession(contract, spec, makers, keys, spec.mid);
+    filled += r.filled;
+    rejected += r.rejected;
+    finalMid.set(contract.id, r.mid);
   }
   console.log(`\nOrders accepted: ${filled}, rejected: ${rejected}`);
 
-  // Refresh the levels the orders ate into, the way a market maker would, so
-  // the depth a visitor sees is not the leftovers of the seed run.
+  // Restore full depth around wherever each market ended up, the way a market
+  // maker would. The book a visitor sees should be the current one, not the
+  // leftovers of the last round.
   let refreshed = 0;
   for (const { contract, spec } of created) {
-    refreshed += await replenishLadder(contract.id, spec, makers);
+    refreshed += await replenishLadder(
+      contract.id,
+      { ...spec, mid: finalMid.get(contract.id) ?? spec.mid },
+      makers
+    );
   }
   console.log(`Books replenished to full depth (${refreshed} levels topped up).`);
 
   const moved = await spreadTape(created.map((c) => c.contract.id), since);
-  console.log(`Tape spread over ${TAPE_HOURS}h: ${moved} fills restamped.`);
+  console.log(`Tape spread over ${TAPE_DAYS}d: ${moved} fills restamped.`);
+
+  await seedSettledMarket({ makers, keys, since });
 
   for (const { contract } of created) {
     const n = await prisma.trade.count({ where: { contractId: contract.id } });

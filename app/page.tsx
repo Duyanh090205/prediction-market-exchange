@@ -4,6 +4,7 @@ import Navbar from "@/app/components/Navbar";
 import ContractCard from "@/app/components/ContractCard";
 import MarketsLiveRefresher from "@/app/components/MarketsLiveRefresher";
 import GuestBanner from "@/app/components/GuestBanner";
+import RecentFills, { type Fill } from "@/app/components/RecentFills";
 import ActivePositionsWidget from "@/app/components/ActivePositionsWidget";
 import Link from "next/link";
 
@@ -14,17 +15,60 @@ export default async function HomePage() {
   // being asked for credentials. Interactive pieces are gated on `user`.
   const user = await getLabUser();
 
-  const contracts = await prisma.contract.findMany({
-    where: { status: "OPEN" },
-    include: {
-      quotes: {
-        where: { status: "OPEN" },
-        select: { id: true, status: true },
+  const [contracts, settledContracts, recentTrades] = await Promise.all([
+    prisma.contract.findMany({
+      where: { status: "OPEN" },
+      include: {
+        quotes: {
+          where: { status: "OPEN" },
+          select: { id: true, status: true },
+        },
+        _count: { select: { trades: true } },
       },
-      _count: { select: { trades: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+    // Settled markets are the only place the settlement engine is visible from
+    // outside: a closing value, and P&L realized against it on every position.
+    // Hiding them behind a status filter left that half of the system unproven.
+    prisma.contract.findMany({
+      where: { status: "SETTLED" },
+      include: {
+        quotes: { where: { status: "OPEN" }, select: { id: true, status: true } },
+        _count: { select: { trades: true } },
+      },
+      orderBy: [{ settledAt: "desc" }, { updatedAt: "desc" }],
+      take: 3,
+    }),
+    // The tape across every market, for the ticker.
+    prisma.trade.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        contractId: true,
+        takerSide: true,
+        strike: true,
+        size: true,
+        createdAt: true,
+        contract: { select: { title: true } },
+      },
+    }),
+  ]);
+
+  const fills: Fill[] = recentTrades.map((t) => ({
+    id: `t${t.id}`,
+    contractId: t.contractId,
+    title: t.contract.title,
+    side: t.takerSide as "OVER" | "UNDER",
+    strike: t.strike,
+    size: t.size,
+    at: t.createdAt.toISOString(),
+  }));
+  // Lets the ticker name a market for a fill that arrives over the socket,
+  // where the payload deliberately carries ids rather than text.
+  const titles: Record<number, string> = {};
+  for (const c of [...contracts, ...settledContracts]) titles[c.id] = c.title;
+  for (const t of recentTrades) titles[t.contractId] = t.contract.title;
 
   // Any authenticated user can create their own market.
   const canCreateMarket = !!user;
@@ -36,6 +80,8 @@ export default async function HomePage() {
       {!user && <GuestBanner />}
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {user && <ActivePositionsWidget userId={Number(user.id)} />}
+
+        <RecentFills initial={fills} titles={titles} authed={!!user} />
 
         {/* Header */}
         <div
@@ -112,6 +158,37 @@ export default async function HomePage() {
               <ContractCard key={c.id} contract={c} />
             ))}
           </div>
+        )}
+
+        {settledContracts.length > 0 && (
+          <section style={{ marginTop: "3rem" }}>
+            <h2
+              style={{
+                fontSize: "1.125rem",
+                fontWeight: 700,
+                color: "#e4e4ed",
+                margin: "0 0 0.25rem",
+              }}
+            >
+              Recently settled
+            </h2>
+            <p style={{ margin: "0 0 1.25rem", fontSize: "0.9375rem", color: "#8888a0" }}>
+              Closed at a published value, with every open position marked
+              against it in one transaction — P&amp;L per trade, balances and
+              ledger entries all written together or not at all.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+                gap: "1.25rem",
+              }}
+            >
+              {settledContracts.map((c: (typeof settledContracts)[number]) => (
+                <ContractCard key={c.id} contract={c} />
+              ))}
+            </div>
+          </section>
         )}
       </main>
     </>

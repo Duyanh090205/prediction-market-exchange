@@ -41,8 +41,12 @@ export default function ContractRoom({
     // namespaces)
     const join = () => socket.emit("join:contract", contractId);
 
-    join(); // queued by socket.io if not yet connected, flushed on connect
-    socket.on("connect", join); // re-join after any reconnect
+    // Exactly once per connection. Emitting unconditionally here queued a join
+    // that socket.io flushed on connect, and the "connect" handler then sent a
+    // second one — harmless server-side (rooms are a set) but it showed up as a
+    // duplicate frame on the wire.
+    if (socket.connected) join();
+    socket.on("connect", join); // (re-)join on connect and after any reconnect
 
     // Same 500ms debounce PortfolioLive uses: each refresh re-runs the page's
     // server components, so a burst of fills coalesces into one round-trip.

@@ -240,7 +240,9 @@ export async function POST(
       // 3. Settle contract
       await tx.contract.update({
         where: { id: contractId },
-        data: { status: "SETTLED", settlementValue },
+        // settledAt so a settled market can say when, without inferring it
+        // from updatedAt (which any later write to the row would move).
+        data: { status: "SETTLED", settlementValue, settledAt: new Date() },
       });
 
       // 4. Integrity check INSIDE the txn — every affected user's balance

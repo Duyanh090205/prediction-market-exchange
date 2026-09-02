@@ -126,6 +126,12 @@ model Contract {
   minPrice        Int            @default(0)
   maxPrice        Int            @default(100)
   settlementValue Int?
+  // When this market is scheduled to settle, and when it actually did. A real
+  // exchange always shows the first; without it every market reads as open
+  // ended. The second is set by the settle route, so "settled 3 days ago" does
+  // not have to be inferred from updatedAt.
+  settlesAt       DateTime?
+  settledAt       DateTime?
   // The creator's committed result, entered and locked at creation so they
   // cannot pick an outcome after seeing positions. Required for player-created
   // markets; nullable for admin/legacy markets. Never returned by default —

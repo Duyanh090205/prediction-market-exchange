@@ -210,19 +210,31 @@ export async function recordApiRequest(identifier: string): Promise<void> {
 // ─── Demo sandbox accounts — per IP, unauthenticated endpoint ────────────────
 //
 // POST /api/demo/session creates an account with no credentials presented, so
-// it is the one write surface on this deployment a stranger can reach. Three
-// per hour is enough for a reviewer who signs out and comes back; it is not
-// enough to fill the table. lib/demoAccounts.ts caps and expires them as well.
+// it is the one write surface on this deployment a stranger can reach.
+//
+// Two limits doing different jobs. The hourly budget is deliberately loose: an
+// IP is not a person. Everyone behind one firm's NAT shares it, and the failure
+// mode of a tight budget is the second reviewer at the same company being told
+// to come back in an hour, with no idea why. The short cooldown is what
+// actually stops a script, and it costs a human nothing — a double-click or a
+// retry on a slow connection is a few seconds apart, not thirty.
+//
+// The real bounds on abuse are elsewhere and do not care about IPs: a cap on
+// live accounts and a 24h TTL, both in lib/demoAccounts.ts.
 
-const DEMO_LIMIT = 3;
+const DEMO_LIMIT = 20;
 const DEMO_WINDOW_MS = 60 * 60 * 1000;
+const DEMO_COOLDOWN_MS = 30 * 1000;
 
 export async function checkDemoSessionRateLimit(ip: string): Promise<RateLimitResult> {
+  const cooling = await store.check(`democooldown:${ip}`, 1, DEMO_COOLDOWN_MS);
+  if (!cooling.allowed) return cooling;
   return store.check(`demo:${ip}`, DEMO_LIMIT, DEMO_WINDOW_MS);
 }
 
 export async function recordDemoSessionAttempt(ip: string): Promise<void> {
   await store.recordFailure(`demo:${ip}`, DEMO_WINDOW_MS);
+  await store.recordFailure(`democooldown:${ip}`, DEMO_COOLDOWN_MS);
 }
 
 // ─── Demo order flow — tighter than a real account ───────────────────────────
