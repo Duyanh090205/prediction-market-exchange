@@ -32,9 +32,10 @@ RUN_DB_ITEST=1 npx jest  # all 103
 > layer - 88% of the codebase. Deployment configuration and the SSO integration were
 > contributed by teammates.
 
-> **Deployment status.** The original hosted deployment has been retired and its domain
-> released. The repository and its test suite are the reference; the setup section below
-> brings the full stack up locally.
+> **Live at https://prediction-market-exchange.onrender.com** — Render plus Neon Postgres,
+> both free tier. Opening the root without an account shows a read-only order book;
+> sign in with `demo@example.com` / `demo-trader-2027` to place orders against the
+> real matching engine. It has never taken live order flow.
 
 ## How It Works
 
