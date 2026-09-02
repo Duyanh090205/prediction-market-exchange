@@ -20,9 +20,13 @@
  *   APP_URL   the deployment to trade against
  *             (default https://prediction-market-exchange.onrender.com)
  *   DEMO_PASSWORD   reviewer account password (default demo-trader-2027)
- *   SEED_MAKER_PASSWORD  password for the seeded market makers, so the script
- *                        can sign in as one and settle a market through the
- *                        app's own route (default seed-maker-2027)
+ *   SEED_MAKER_PASSWORD  optional. The script signs in as a seeded market maker
+ *                        to settle a market through the app's own route, and
+ *                        resets that account's password on every run. Left
+ *                        unset it uses a fresh random one, which is what you
+ *                        want: those accounts are LIQUIDITY_PROVIDERs and the
+ *                        creators of the demo markets, so a password anyone can
+ *                        read would let a stranger settle them at any value.
  *   TAPE_DAYS       how far back to spread the tape (default 4)
  */
 import { PrismaClient } from "@prisma/client";
@@ -53,7 +57,9 @@ const APP_URL = (process.env.APP_URL || "https://prediction-market-exchange.onre
 const REVIEWER_EMAIL = "demo@example.com";
 const REVIEWER_PASSWORD = process.env.DEMO_PASSWORD || "demo-trader-2027";
 const TAPE_DAYS = Number(process.env.TAPE_DAYS || 4);
-const MAKER_PASSWORD = process.env.SEED_MAKER_PASSWORD || "seed-maker-2027";
+// No default: a literal here is a public credential for an account that can
+// settle the demo markets. Random per run, used once, never printed.
+const MAKER_PASSWORD = process.env.SEED_MAKER_PASSWORD || randomBytes(24).toString("base64url");
 const KEY_LABEL = "demo seed";
 
 // Mirrors lib/apiAuth.ts — 12-char public prefix, SHA-256 of the whole key.
@@ -595,8 +601,39 @@ const c_isOpen = (c) => c.status === "OPEN";
 const daysFromNow = (d) => new Date(Date.now() + d * 24 * 60 * 60 * 1000);
 const daysAgo = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
 
+/** Host and database name only — never the credentials. */
+function describeTarget(url) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return "(unparseable TRADING_DATABASE_URL)";
+  }
+}
+
 async function main() {
   const since = new Date(Date.now() - 60 * 1000);
+
+  // This script writes quotes to one place and sends orders to another. Getting
+  // those two out of step is the expensive mistake — seeding a local database
+  // while trading against production, or the reverse — so say what they are and
+  // refuse the obvious mismatch.
+  const dbUrl = process.env.TRADING_DATABASE_URL || "";
+  const dbTarget = describeTarget(dbUrl);
+  const dbIsLocal = /localhost|127\.0\.0\.1/.test(dbUrl);
+  const appIsLocal = /localhost|127\.0\.0\.1/.test(APP_URL);
+  console.log(`Database: ${dbTarget}`);
+  console.log(`App:      ${APP_URL}`);
+  if (dbIsLocal !== appIsLocal && process.env.SEED_ALLOW_MISMATCH !== "1") {
+    console.error(
+      `
+Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app is ` +
+      `${appIsLocal ? "local" : "remote"}. Orders would execute against a different dataset ` +
+      `than the one being seeded. Set SEED_ALLOW_MISMATCH=1 if this is deliberate.`
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const reviewer = await upsertUser({
     username: "demo", email: REVIEWER_EMAIL, role: "USER",
