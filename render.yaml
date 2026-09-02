@@ -11,7 +11,11 @@ services:
     name: prediction-market-exchange
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    # --include=dev is required: NODE_ENV=production below makes npm skip
+    # devDependencies, and the build tooling (@tailwindcss/postcss, typescript,
+    # tailwindcss) lives there. Without it the build dies on a missing postcss
+    # plugin after installing only the 12 runtime packages.
+    buildCommand: npm ci --include=dev && npm run build
     # start-with-migrate.js runs `prisma migrate deploy` before booting the
     # server, on the same network path as the app. Build workers often cannot
     # reach a managed database; the running service can.
@@ -20,6 +24,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # Runtime only. server.js picks the __Secure- session cookie name from
+      # this, so it must stay production even though it complicates the install.
       - key: NODE_ENV
         value: production
       # No TRADING_BASE_PATH here on purpose: the code now defaults to the
