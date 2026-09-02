@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
-// Default must match middleware.ts (which falls back to "/trading"). If these
-// two disagree when TRADING_BASE_PATH is unset, every page redirect-loops at
-// /trading/connect. Production sets TRADING_BASE_PATH explicitly, so this
-// default only affects local runs without the env var.
-const basePath = process.env.TRADING_BASE_PATH ?? "/trading";
+// Must match the default in middleware.ts. Standalone deployments serve at the
+// domain root, so the default is empty. Set TRADING_BASE_PATH=/trading only when
+// mounting this app under a path prefix (its original Lab layout).
+const basePath = process.env.TRADING_BASE_PATH ?? "";
 
 // Content-Security-Policy is set per-request in middleware.ts — it needs a fresh
 // nonce on every request so Next.js's own inline scripts can execute under a

@@ -22,12 +22,8 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
-      # Serve at the domain root. Empty is meaningful here: unset would fall
-      # back to "/trading", the path this app used inside the Lab.
-      - key: TRADING_BASE_PATH
-        value: ""
-      - key: NEXT_PUBLIC_TRADING_BASE_PATH
-        value: ""
+      # No TRADING_BASE_PATH here on purpose: the code now defaults to the
+      # domain root. Set it only to mount the app under a path prefix.
       # Required behind Render's proxy, or Auth.js rejects the host.
       - key: AUTH_TRUST_HOST
         value: "true"

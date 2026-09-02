@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 
 const LAB_JWT_SECRET = process.env.LAB_JWT_SECRET || "";
 const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
-const BASE_PATH = process.env.TRADING_BASE_PATH ?? "/trading";
+const BASE_PATH = process.env.TRADING_BASE_PATH ?? "";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 // Routes that don't need an authenticated Lab session
