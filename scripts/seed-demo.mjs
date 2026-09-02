@@ -28,6 +28,12 @@
  *                        creators of the demo markets, so a password anyone can
  *                        read would let a stranger settle them at any value.
  *   TAPE_DAYS       how far back to spread the tape (default 4)
+ *   SEED_RESET=1    delete this script's own markets and demo sandbox accounts
+ *                   first, so the run produces one clean session instead of
+ *                   layering a new tape over an older one. Never touches a
+ *                   market or an account this script did not create.
+ *   SEED_ALLOW_MISMATCH=1  proceed even when the database is local and the app
+ *                   is remote, or the reverse
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -247,35 +253,47 @@ function ladder({ mid, tick }) {
 const PATH = [
   1, -1, 2, 1, -2, 1, -1, 3, -1, 2,
   -2, 1, -1, 2, -1, 1, 2, -1, -2, 1,
+  1, 2, -1, 1, -2, 2, 1, -1, 3, -2,
+  -1, 1, 2, -1, 1, -3, 1, 2, -1, 1,
 ];
 const SIZES = [
   4, 3, 2, 5, 3, 2, 4, 3, 2, 5,
   3, 4, 2, 3, 2, 6, 3, 4, 2, 5,
+  2, 4, 3, 6, 2, 3, 5, 2, 4, 3,
+  2, 5, 3, 2, 4, 3, 6, 2, 3, 4,
 ];
 
 // Orders are described by how deep into the book they reach, not by an absolute
 // price: the book is re-centred between rounds, so the price a given order pays
 // depends on where the market had moved by then.
-function tradePlan() {
-  return PATH.map((depth, i) => ({
-    side: depth > 0 ? "OVER" : "UNDER",
-    size: SIZES[i],
-    depth,
-  }));
+/**
+ * One market's order flow. `variant` rotates the path and flips its direction
+ * for some markets: running the same sequence everywhere had all five drifting
+ * up in step, and two charts side by side gave away that one script wrote both.
+ */
+function tradePlan(variant = 0) {
+  const n = PATH.length;
+  const shift = (variant * 7) % n;
+  const flip = variant % 3 === 1 ? -1 : 1;
+  return PATH.map((_, i) => {
+    const j = (i + shift) % n;
+    const depth = PATH[j] * flip;
+    return { side: depth > 0 ? "OVER" : "UNDER", size: SIZES[j], depth };
+  });
 }
 
 // Trading happens in rounds. Between them the makers cancel and re-post around
 // wherever the market got to, which is the only reason the price moves at all:
 // with a static book every order fills at the same touch and the transaction
 // chart comes out as a two-level square wave — visibly a script.
-const ROUNDS = 4;
+const ROUNDS = 8;
 
 /**
  * Work the plan against `contract`, re-centring the book between rounds.
  * Returns { filled, rejected, mid } — the mid the market ended on.
  */
-async function tradeSession(contract, spec, makers, keys, startMid) {
-  const plan = tradePlan();
+async function tradeSession(contract, spec, makers, keys, startMid, variant = 0) {
+  const plan = tradePlan(variant);
   const per = Math.ceil(plan.length / ROUNDS);
   let mid = startMid;
   let filled = 0, rejected = 0;
@@ -334,6 +352,12 @@ const MARKETS = [
     title: "Number of named Atlantic storms this season",
     description: "Settles on the final count published at end of season.",
     min: 0, max: 40, mid: 17, tick: 1, settlesInDays: 89,
+  },
+  {
+    title: "US unemployment rate at the next release (basis points)",
+    description:
+      "Headline U-3 unemployment rate, quoted in basis points: 420 means 4.20%. The price band runs 300 to 700, not from zero — a contract only has to cover the outcomes anyone would trade, and the margin engine reserves against the worst case inside that band rather than against an impossible one.",
+    min: 300, max: 700, mid: 420, tick: 5, settlesInDays: 26,
   },
 ];
 
@@ -561,7 +585,9 @@ async function seedSettledMarket({ makers, keys, since }) {
       },
     }));
 
-  const { filled, rejected } = await tradeSession(contract, spec, makers, keys, spec.mid);
+  // A different variant again, so the settled market does not retrace the
+  // shape of an open one.
+  const { filled, rejected } = await tradeSession(contract, spec, makers, keys, spec.mid, 4);
 
   // The tape has to sit before the settlement, not around now.
   const settledAt = daysAgo(spec.settledDaysAgo);
@@ -595,6 +621,68 @@ async function seedSettledMarket({ makers, keys, since }) {
     `${trades} trades (${filled} orders accepted, ${rejected} rejected, ${moved} restamped) · ` +
     `${paid} ledger entries written`
   );
+}
+
+/**
+ * Delete everything this script has ever created, so a rerun produces one clean
+ * session instead of layering a new tape over an old one. Opt-in: SEED_RESET=1.
+ *
+ * Touches only rows this script owns — contracts flagged isDemoSeed, the demo
+ * sandbox accounts, and the seeded users' balances. Real accounts, and any
+ * market a real account created, are left alone.
+ */
+async function resetSeedData(seedUsers) {
+  const contracts = await prisma.contract.findMany({
+    where: { isDemoSeed: true },
+    select: { id: true },
+  });
+  const ids = contracts.map((c) => c.id);
+  if (ids.length) {
+    await prisma.$transaction([
+      prisma.trade.deleteMany({ where: { contractId: { in: ids } } }),
+      prisma.quote.deleteMany({ where: { contractId: { in: ids } } }),
+      prisma.pricePoint.deleteMany({ where: { contractId: { in: ids } } }),
+      prisma.hint.deleteMany({ where: { contractId: { in: ids } } }),
+      prisma.message.deleteMany({ where: { contractId: { in: ids } } }),
+      prisma.contract.deleteMany({ where: { id: { in: ids } } }),
+    ]);
+  }
+
+  // Demo sandbox accounts only ever traded the markets just removed, so nothing
+  // points at them any more.
+  const demos = await prisma.user.findMany({ where: { isDemo: true }, select: { id: true } });
+  const demoIds = demos.map((d) => d.id);
+  if (demoIds.length) {
+    await prisma.$transaction([
+      prisma.contract.updateMany({
+        where: { createdById: { in: demoIds } },
+        data: { createdById: null },
+      }),
+      prisma.trade.deleteMany({
+        where: { OR: [{ takerId: { in: demoIds } }, { makerId: { in: demoIds } }] },
+      }),
+      prisma.quote.deleteMany({ where: { makerId: { in: demoIds } } }),
+      prisma.hint.deleteMany({ where: { authorId: { in: demoIds } } }),
+      prisma.message.deleteMany({
+        where: { OR: [{ userId: { in: demoIds } }, { recipientId: { in: demoIds } }] },
+      }),
+      prisma.notification.deleteMany({ where: { userId: { in: demoIds } } }),
+      prisma.balanceLedger.deleteMany({ where: { userId: { in: demoIds } } }),
+      prisma.apiKey.deleteMany({ where: { userId: { in: demoIds } } }),
+      prisma.user.deleteMany({ where: { id: { in: demoIds } } }),
+    ]);
+  }
+
+  // Seeded players go back to their opening balance, with the ledger cleared so
+  // reconcileOpeningBalance writes one fresh INITIAL_SEED row for each.
+  const ownerIds = seedUsers.map((s) => s.user.id);
+  await prisma.balanceLedger.deleteMany({ where: { userId: { in: ownerIds } } });
+  for (const { user, opening } of seedUsers) {
+    await prisma.user.update({ where: { id: user.id }, data: { balance: opening } });
+    user.balance = opening;
+  }
+
+  return { contracts: ids.length, demoAccounts: demoIds.length };
 }
 
 const c_isOpen = (c) => c.status === "OPEN";
@@ -646,9 +734,23 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
   for (const n of ["r_okafor", "j_lindqvist", "m_tanaka", "p_varga", "s_adeyemi"]) {
     takers.push(await upsertUser({ username: n, email: `${n}@demo.invalid`, role: "USER", balance: 5000 }));
   }
+  const seedUsers = [
+    { user: reviewer, opening: 1000 },
+    { user: mm1, opening: 20000 },
+    { user: mm2, opening: 20000 },
+    ...takers.map((t) => ({ user: t, opening: 5000 })),
+  ];
+
+  if (process.env.SEED_RESET === "1") {
+    const wiped = await resetSeedData(seedUsers);
+    console.log(
+      `Reset: removed ${wiped.contracts} seeded markets and ${wiped.demoAccounts} demo sandbox accounts.`
+    );
+  }
+
   let seeded = 0;
-  for (const u of [reviewer, mm1, mm2, ...takers]) {
-    if (await reconcileOpeningBalance(u)) seeded++;
+  for (const { user } of seedUsers) {
+    if (await reconcileOpeningBalance(user)) seeded++;
   }
   console.log(
     `Users ready: ${reviewer.username} + 2 makers + ${takers.length} takers ` +
@@ -708,8 +810,8 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
   console.log(`\nPlacing orders against ${APP_URL} …`);
   let filled = 0, rejected = 0;
   const finalMid = new Map();
-  for (const { contract, spec } of created) {
-    const r = await tradeSession(contract, spec, makers, keys, spec.mid);
+  for (const [i, { contract, spec }] of created.entries()) {
+    const r = await tradeSession(contract, spec, makers, keys, spec.mid, i);
     filled += r.filled;
     rejected += r.rejected;
     finalMid.set(contract.id, r.mid);
