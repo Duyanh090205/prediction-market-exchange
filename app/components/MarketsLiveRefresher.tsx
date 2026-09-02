@@ -4,32 +4,26 @@
 // the server broadcasts CONTRACT_CREATED to all clients; we re-fetch the
 // (server-rendered, force-dynamic) list so the new market appears without a
 // manual reload.
+//
+// Signed-out visitors get the same behaviour over the public /market-data
+// namespace — the market list is readable without an account, so it should not
+// go stale without one either.
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getSocket } from "@/lib/socket-client";
+import { getMarketDataSocket } from "@/lib/socket-client";
 
-export default function MarketsLiveRefresher() {
+export default function MarketsLiveRefresher({ authed }: { authed: boolean }) {
   const router = useRouter();
 
   useEffect(() => {
-    const socket = getSocket();
-    const onCreated = (payload: unknown) => {
-      // DEBUG: confirms the broadcast reached this client.
-      console.log("[markets] CONTRACT_CREATED received → refreshing", payload);
-      router.refresh();
-    };
+    const socket = getMarketDataSocket(authed);
+    const onCreated = () => router.refresh();
     socket.on("CONTRACT_CREATED", onCreated);
-    // DEBUG: confirms this component mounted and subscribed.
-    console.log(
-      "[markets] listening for CONTRACT_CREATED (socket connected =",
-      socket.connected,
-      ")"
-    );
     return () => {
       socket.off("CONTRACT_CREATED", onCreated);
     };
-  }, [router]);
+  }, [router, authed]);
 
   return null;
 }

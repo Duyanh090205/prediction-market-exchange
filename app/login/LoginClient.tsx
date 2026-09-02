@@ -4,6 +4,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 declare global {
   interface Window {
@@ -41,6 +43,7 @@ function LoginPageInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   // Google Sign-In is optional and only rendered when a client id is set. The
   // password form below is always present, and is what a standalone deployment
@@ -95,6 +98,42 @@ function LoginPageInner() {
     };
   }, [googleClientId, callbackUrl]);
 
+  // "Enter as demo trader": mint a throwaway sandbox account, then sign in with
+  // its credentials through the same provider the password form uses. The
+  // server never gets a second way to create a session — see
+  // lib/demoAccounts.ts for the cap, the TTL and what a demo account may not do.
+  async function onDemo() {
+    setError(null);
+    setDemoLoading(true);
+    try {
+      const res = await fetch(withTradingBasePath("/api/demo/session"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not start a demo session.");
+        setDemoLoading(false);
+        return;
+      }
+      const result = await signIn("credentials", {
+        email: data.email,
+        password: data.password,
+        redirect: false,
+      });
+      if (!result || result.error) {
+        setError("Demo account was created but sign-in failed.");
+        setDemoLoading(false);
+        return;
+      }
+      window.location.assign(data.redirectTo || callbackUrl);
+    } catch {
+      setError("Could not start a demo session.");
+      setDemoLoading(false);
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -144,13 +183,59 @@ function LoginPageInner() {
         >
           Sign in
         </h1>
-        <p style={{ color: "#8888a0", fontSize: "0.9rem", margin: "0 0 1.75rem" }}>
+        <p style={{ color: "#8888a0", fontSize: "0.9rem", margin: "0 0 1.5rem" }}>
           Or{" "}
-          <a href="/demo" style={{ color: "#a5b4fc" }}>
-            look at an order book
-          </a>{" "}
+          <Link href="/" style={{ color: "#a5b4fc" }}>
+            read the markets
+          </Link>{" "}
           without an account.
         </p>
+
+        <button
+          type="button"
+          onClick={onDemo}
+          disabled={demoLoading || loading}
+          style={{
+            width: "100%",
+            padding: "0.625rem",
+            borderRadius: "0.5rem",
+            border: "1px solid rgba(99,102,241,0.5)",
+            background: demoLoading ? "rgba(99,102,241,0.08)" : "rgba(99,102,241,0.16)",
+            color: "#c7d2fe",
+            fontSize: "0.9rem",
+            fontWeight: 600,
+            fontFamily: "inherit",
+            cursor: demoLoading ? "default" : "pointer",
+          }}
+        >
+          {demoLoading ? "Opening a demo account…" : "Enter as demo trader"}
+        </button>
+        <p
+          style={{
+            color: "#555570",
+            fontSize: "0.75rem",
+            margin: "0.5rem 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          A sandbox account with play money, against the real matching engine.
+          No email, no approval. It expires after 24 hours.
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+            margin: "1.5rem 0",
+            color: "#555570",
+            fontSize: "0.75rem",
+          }}
+        >
+          <span style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+          or sign in
+          <span style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+        </div>
 
         <form onSubmit={onSubmit} style={{ display: "grid", gap: "1rem" }}>
           <div>

@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const LAB_JWT_SECRET = process.env.LAB_JWT_SECRET || "";
-const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "https://lab.iterlight.com/login";
+// Lab SSO login page, supplied by the environment when this app is mounted
+// inside the Lab. No default host here: that deployment is gone, and a dead
+// hostname baked into a public repo is a reference a reader cannot resolve.
+// Empty means standalone, and the fallback below is this app's own /login.
+const LAB_LOGIN_URL = process.env.LAB_LOGIN_URL || "";
 const BASE_PATH = process.env.TRADING_BASE_PATH ?? "";
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -13,8 +17,15 @@ const PUBLIC_PREFIXES = [
   "/api/health",
   "/api/v1",     // Programmatic API: Bearer-token auth (getApiUser), no Lab cookie/SSO redirect
   "/api/discord", // Discord OAuth start/callback + unlink: route handlers do their own getLabUser + state check; must not be swallowed by the /connect bridge (which would drop the OAuth ?code)
+  "/api/demo",   // Demo sandbox sign-up: unauthenticated by design, guarded by CSRF + per-IP budget + cap (lib/demoAccounts.ts)
+  "/api/cron",   // Scheduled maintenance: every handler checks Authorization: Bearer CRON_SECRET itself. Without this the session gate here redirected the scheduler to /login, so none of them could ever run in standalone mode.
   "/connect",    // Cookie-bridge page: reads Lab localStorage token and exchanges it for a lab_session cookie
 ];
+
+// Public API endpoints that a prefix cannot express. Matched exactly, so
+// opening the price series does not open POST /api/contracts (create market) or
+// /api/contracts/<id>/settle alongside it.
+const PUBLIC_API_PATTERNS = [/^\/api\/contracts\/\d+\/price-history$/];
 
 // Pages an unauthenticated visitor may open in standalone mode. The market list
 // and each market's page are readable without an account — a login wall is half
@@ -79,6 +90,9 @@ export async function middleware(req: NextRequest) {
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return pass();
   }
+  if (PUBLIC_API_PATTERNS.some((re) => re.test(pathname))) {
+    return pass();
+  }
 
   // Standalone mode. No Lab SSO secret configured means this deployment lives
   // outside the Lab, so it authenticates with its own NextAuth credentials
@@ -107,9 +121,12 @@ export async function middleware(req: NextRequest) {
       return pass();
     } catch (err: any) {
       // Expired or tampered — clear cookie and fall through to redirect
-      const res = NextResponse.redirect(
-        new URL(`${LAB_LOGIN_URL}?redirect=${encodeURIComponent(req.nextUrl.href)}&reason=jwt_verify_failed&err=${encodeURIComponent(err.message || 'unknown')}`)
-      );
+      const dest = LAB_LOGIN_URL
+        ? new URL(
+            `${LAB_LOGIN_URL}?redirect=${encodeURIComponent(req.nextUrl.href)}&reason=jwt_verify_failed&err=${encodeURIComponent(err.message || 'unknown')}`
+          )
+        : new URL("/login", req.nextUrl.origin);
+      const res = NextResponse.redirect(dest);
       res.cookies.set("lab_session", "", { maxAge: 0, path: "/" });
       return withCsp(res);
     }

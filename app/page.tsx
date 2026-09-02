@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import Navbar from "@/app/components/Navbar";
 import ContractCard from "@/app/components/ContractCard";
 import MarketsLiveRefresher from "@/app/components/MarketsLiveRefresher";
+import GuestBanner from "@/app/components/GuestBanner";
 import ActivePositionsWidget from "@/app/components/ActivePositionsWidget";
 import Link from "next/link";
 
@@ -31,24 +32,8 @@ export default async function HomePage() {
   return (
     <>
       <Navbar />
-      <MarketsLiveRefresher />
-      {!user && (
-        <div
-          style={{
-            maxWidth: "1100px",
-            margin: "1rem auto 0",
-            padding: "0.75rem 1.25rem",
-            background: "rgba(99,102,241,0.10)",
-            border: "1px solid rgba(99,102,241,0.25)",
-            borderRadius: "0.5rem",
-            color: "#a5b4fc",
-            fontSize: "0.875rem",
-          }}
-        >
-          Viewing as a guest — the book, prices and fills are live and read-only.{" "}
-          <a href="/login" style={{ color: "#c7d2fe" }}>Sign in</a> to place orders.
-        </div>
-      )}
+      <MarketsLiveRefresher authed={!!user} />
+      {!user && <GuestBanner />}
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {user && <ActivePositionsWidget userId={Number(user.id)} />}
 

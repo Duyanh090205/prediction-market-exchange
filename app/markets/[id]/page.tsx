@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import ContractRoom from "@/app/components/ContractRoom";
+import GuestBanner from "@/app/components/GuestBanner";
 import PriceChart from "@/app/components/PriceChart";
 import QuoteCard from "@/app/components/QuoteCard";
 import HintPanel from "@/app/components/HintPanel";
@@ -132,24 +133,8 @@ export default async function MarketPage({
   return (
     <>
       <Navbar />
-      <ContractRoom contractId={contractId} />
-      {!user && (
-        <div
-          style={{
-            maxWidth: "1100px",
-            margin: "1rem auto 0",
-            padding: "0.75rem 1.25rem",
-            background: "rgba(99,102,241,0.10)",
-            border: "1px solid rgba(99,102,241,0.25)",
-            borderRadius: "0.5rem",
-            color: "#a5b4fc",
-            fontSize: "0.875rem",
-          }}
-        >
-          Viewing as a guest — the book, prices and fills are live and read-only.{" "}
-          <a href="/login" style={{ color: "#c7d2fe" }}>Sign in</a> to place orders.
-        </div>
-      )}
+      <ContractRoom contractId={contractId} authed={!!user} />
+      {!user && <GuestBanner />}
       <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         {/* Breadcrumb */}
         <div style={{ marginBottom: "1rem" }}>
@@ -229,7 +214,13 @@ export default async function MarketPage({
             <p style={{ margin: "0 0 0.5rem", fontSize: "0.6875rem", fontWeight: 700, color: "#5a5a72", textTransform: "uppercase", letterSpacing: "0.06em" }}>
               Transaction Price
             </p>
-            <PriceChart contractId={contractId} minPrice={contract.minPrice} maxPrice={contract.maxPrice} variant="transaction" />
+            <PriceChart
+              contractId={contractId}
+              minPrice={contract.minPrice}
+              maxPrice={contract.maxPrice}
+              variant="transaction"
+              authed={!!user}
+            />
           </div>
         </div>
 
@@ -246,27 +237,71 @@ export default async function MarketPage({
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <OrderBook asks={asks} bids={bids} isAdmin={isAdmin} minPrice={contract.minPrice} maxPrice={contract.maxPrice} />
 
-            {/* Hints */}
-            <div
-              style={{
-                marginTop: "0.5rem",
-                padding: "1.25rem",
-                background: "#12121a",
-                border: "1px solid #1a1a2e",
-                borderRadius: "0.75rem",
-              }}
-            >
-              {user && <HintPanel
-                hints={contract.hints}
-                contractId={contractId}
-                currentUserId={currentUserId}
-                currentUserRole={currentUserRole}
-              />}
-            </div>
+            {/* Hints — the card is gated with its contents, not around them:
+                rendering the shell for a signed-out visitor left an empty box. */}
+            {user && (
+              <div
+                style={{
+                  marginTop: "0.5rem",
+                  padding: "1.25rem",
+                  background: "#12121a",
+                  border: "1px solid #1a1a2e",
+                  borderRadius: "0.75rem",
+                }}
+              >
+                <HintPanel
+                  hints={contract.hints}
+                  contractId={contractId}
+                  currentUserId={currentUserId}
+                  currentUserRole={currentUserRole}
+                />
+              </div>
+            )}
           </div>
 
           {/* ── RIGHT COLUMN: order forms + your open quotes ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {!user && contract.status === "OPEN" && (
+              <div
+                style={{
+                  padding: "1.25rem",
+                  background: "#12121a",
+                  border: "1px solid #1a1a2e",
+                  borderRadius: "0.75rem",
+                }}
+              >
+                <p style={sectionLabel}>Order Entry</p>
+                <p
+                  style={{
+                    margin: "0 0 1.25rem",
+                    fontSize: "0.875rem",
+                    color: "#8888a0",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Market orders, resting limit orders and your position ledger
+                  sit behind the session. The book on the left is the one they
+                  execute against — nothing is simulated for signed-out
+                  visitors.
+                </p>
+                <a
+                  href="/login"
+                  style={{
+                    display: "inline-block",
+                    padding: "0.5rem 1.25rem",
+                    background: "#6366f1",
+                    color: "#fff",
+                    borderRadius: "0.375rem",
+                    textDecoration: "none",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Sign in to place orders
+                </a>
+              </div>
+            )}
+
             {user && canPostQuote && contract.status === "OPEN" && (
               <MarketOrderForm
                 contractId={contractId}

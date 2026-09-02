@@ -66,6 +66,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Markets created here appear on the public home page and cannot be removed
+    // by anyone but an admin. A throwaway account should not be able to put
+    // text there.
+    if (user.isDemo) {
+      reqLog.finish(403, user.id);
+      return NextResponse.json(
+        { error: "Demo accounts cannot create markets" },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { title, description, minPrice, maxPrice, lockedResult } = body;
 

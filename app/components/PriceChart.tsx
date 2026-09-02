@@ -11,7 +11,7 @@
 
 import "uplot/dist/uPlot.min.css";
 import { useEffect, useRef } from "react";
-import { getSocket } from "@/lib/socket-client";
+import { getMarketDataSocket } from "@/lib/socket-client";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 type Variant = "mid" | "transaction";
@@ -21,6 +21,11 @@ interface Props {
   minPrice: number;
   maxPrice: number;
   variant?: Variant;
+  /**
+   * Which feed to take live updates from. Price history and the trade tape are
+   * public, so a signed-out visitor gets the same chart over /market-data.
+   */
+  authed: boolean;
 }
 
 type MidPoint = { t: number; mid: number };
@@ -75,7 +80,13 @@ function buildTradeSeries(
   return [xs, ys, ys];
 }
 
-export default function PriceChart({ contractId, minPrice, maxPrice, variant = "mid" }: Props) {
+export default function PriceChart({
+  contractId,
+  minPrice,
+  maxPrice,
+  variant = "mid",
+  authed,
+}: Props) {
   const elRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -192,7 +203,7 @@ export default function PriceChart({ contractId, minPrice, maxPrice, variant = "
       };
       window.addEventListener("resize", onResize);
 
-      const socket = getSocket();
+      const socket = getMarketDataSocket(authed);
       const onPrice = (ev: { contractId: number; ts: string; mid: number }) => {
         if (ev.contractId !== contractId) return;
         // The transaction-price chart ignores the mid timeline entirely.
@@ -220,7 +231,7 @@ export default function PriceChart({ contractId, minPrice, maxPrice, variant = "
       destroyed = true;
       cleanup();
     };
-  }, [contractId, minPrice, maxPrice, variant]);
+  }, [contractId, minPrice, maxPrice, variant, authed]);
 
   return (
     <div>

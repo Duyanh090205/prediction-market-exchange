@@ -1,26 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
 import { createRequestLogger } from "@/lib/logger";
 
 // GET /api/contracts/[id]/price-history — time series of the market mid for the
 // live price chart. Returns points oldest→newest as { t (unix seconds), mid }.
+//
+// Public, deliberately: this is market data, and the market page it draws on is
+// already readable without an account. It returns the mid series and the
+// (time, strike) of each executed trade — the same prints the Confirmed Trades
+// table on that page renders server-side. No account, position or counterparty
+// data passes through here. While it required a session, a signed-out visitor
+// got a redirect to /login instead of JSON and the chart rendered as an empty
+// frame with a legend under it.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const reqLog = createRequestLogger(request);
   try {
-    const user = await getLabUser();
-    if (!user) {
-      reqLog.finish(401);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const { id } = await params;
     const contractId = Number(id);
     if (isNaN(contractId)) {
-      reqLog.finish(400, user.id);
+      reqLog.finish(400);
       return NextResponse.json({ error: "Invalid contract id" }, { status: 400 });
     }
 
@@ -48,7 +49,7 @@ export async function GET(
       price: t.strike,
     }));
 
-    reqLog.finish(200, user.id);
+    reqLog.finish(200);
     return NextResponse.json({ points, trades });
   } catch (error) {
     reqLog.error(error);

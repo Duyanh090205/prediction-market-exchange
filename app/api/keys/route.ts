@@ -68,6 +68,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // A demo account is handed to anyone with the link. An API key outlives the
+    // account's 24h TTL and authenticates against /api/v1 with no session, so
+    // this is the one capability a sandbox visitor does not get.
+    if (user.isDemo) {
+      reqLog.finish(403, user.id);
+      return NextResponse.json(
+        { error: "Demo accounts cannot mint API keys" },
+        { status: 403 }
+      );
+    }
+
     // Throttle key creation per user so a logged-in account can't spam keys.
     const rl = await checkKeyCreateRateLimit(user.id);
     if (!rl.allowed) {

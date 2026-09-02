@@ -1,0 +1,76 @@
+name: keep-awake
+
+# Render's free tier stops a service after ~15 minutes with no inbound request,
+# and the next visitor waits 30-60 seconds on a blank page while the container
+# comes back. This deployment exists to be opened by someone who was sent the
+# link once and will not wait, so the cold start is the whole problem.
+#
+# ~144 runs a day, a few seconds each. Actions minutes are free on public repos.
+# GitHub throttles and sometimes drops scheduled runs, so treat the interval as
+# an upper bound; a skipped ping costs one cold start, not correctness.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # monthly heartbeat: GitHub disables cron in a repo idle 60 days
+
+concurrency:
+  group: keep-awake
+  cancel-in-progress: false
+
+env:
+  APP_URL: https://prediction-market-exchange.onrender.com
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: bash -e -o pipefail {0}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ping the health endpoint
+        run: |
+          # First request may be paying for a cold start, so it gets a long
+          # timeout and is allowed to fail. The retry is the one that decides:
+          # a deployment that cannot answer twice in three minutes is down, and
+          # a failed run here is how that becomes visible instead of being
+          # discovered by whoever opened the link.
+          probe() {
+            curl -sS -o /dev/null -w '%{http_code}' --max-time 120 \
+              "$APP_URL/api/health" 2>/dev/null || echo 000
+          }
+          first=$(probe)
+          echo "GET /api/health -> $first" | tee run.log
+          if [ "$first" = "200" ]; then exit 0; fi
+
+          sleep 20
+          second=$(probe)
+          echo "retry GET /api/health -> $second" | tee -a run.log
+          test "$second" = "200"
+
+      - name: Monthly heartbeat commit
+        if: github.event_name == 'schedule'
+        run: |
+          [ "$(date -u +%d)" = "01" ] || exit 0
+          [ "$(date -u +%H:%M)" \< "00:20" ] || exit 0
+          date -u +%F > .github/keepalive-stamp
+          if [ -n "$(git status --porcelain .github/keepalive-stamp)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/keepalive-stamp
+            git commit -m "chore: keep-awake heartbeat (keeps scheduled workflows enabled)"
+            git pull --rebase origin main
+            git push
+          fi
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat run.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

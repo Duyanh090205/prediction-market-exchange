@@ -171,6 +171,7 @@ app.prepare().then(async () => {
   // ── Connection Metrics ───────────────────────────────────────────────────
   // websocket-engineer: log connection metrics (count, latency, errors)
   let connectionCount = 0;
+  let publicConnectionCount = 0;
 
   // ── Authentication Middleware ─────────────────────────────────────────────
   // Prefer Lab `lab_session` (same as HTTP middleware); fall back to NextAuth JWT cookie.
@@ -260,9 +261,71 @@ app.prepare().then(async () => {
     });
   });
 
-  // ── Expose io instance globally for Route Handlers to emit events ─────
+  // ── Public market-data namespace ─────────────────────────────────────────
+  //
+  // A real exchange separates its public market-data feed from its
+  // authenticated order gateway, and so does this server. `/market-data`
+  // carries the order book, the last traded price and confirmed trades to
+  // anyone, with no session — that is what a visitor sees before signing in.
+  // The default namespace `/` keeps the auth middleware above and stays the
+  // only route for order entry, positions, balances, chat and hints.
+  //
+  // The split is structural, not a set of per-event checks: a socket here is
+  // never given a userId and therefore can never be placed in a `user:<id>`
+  // room, so private events have no path to reach it even if an emitter is
+  // later written carelessly.
+  const marketData = io.of("/market-data");
+
+  // One anonymous socket cannot subscribe to unbounded rooms. socket.rooms
+  // always contains the socket's own id, so the cap is contracts + 1.
+  const PUBLIC_ROOM_CAP = 26;
+
+  marketData.on("connection", (socket) => {
+    publicConnectionCount++;
+    console.log(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "INFO",
+        event: "ws:public_connected",
+        socketId: socket.id,
+        totalPublicConnections: publicConnectionCount,
+      })
+    );
+
+    // The only two messages this namespace accepts. Anything else is ignored:
+    // there is no handler, so it cannot reach application code.
+    socket.on("join:contract", (contractId) => {
+      if (!Number.isInteger(contractId) || contractId <= 0) return;
+      if (socket.rooms.size >= PUBLIC_ROOM_CAP) return;
+      socket.join(`contract:${contractId}`);
+    });
+
+    socket.on("leave:contract", (contractId) => {
+      if (!Number.isInteger(contractId) || contractId <= 0) return;
+      socket.leave(`contract:${contractId}`);
+    });
+
+    socket.on("disconnect", (reason) => {
+      publicConnectionCount--;
+      console.log(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "INFO",
+          event: "ws:public_disconnected",
+          socketId: socket.id,
+          reason,
+          totalPublicConnections: publicConnectionCount,
+        })
+      );
+    });
+  });
+
+  // ── Expose io instances globally for Route Handlers to emit events ────
   // This allows `app/api/orders/route.ts` to push real-time updates.
+  // lib/socket-events.ts reads both: private events go to `__io` only, market
+  // data fans out to `__io` and `__ioPublic`.
   global.__io = io;
+  global.__ioPublic = marketData;
 
   // ── Attach redis adapter for multi-pod scale ─────────────────────────────
   await maybeAttachRedis(io);
@@ -280,6 +343,7 @@ app.prepare().then(async () => {
         event: "server:started",
         url: `http://${hostname}:${port}`,
         websockets: true,
+        namespaces: { "/": "authenticated", "/market-data": "public" },
         authMethod: "lab_session|nextauth-jwt",
         pingIntervalMs: 8 * 60 * 1000,
       })

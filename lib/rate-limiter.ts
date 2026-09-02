@@ -207,6 +207,43 @@ export async function recordApiRequest(identifier: string): Promise<void> {
   await store.recordFailure(`api:${identifier}`, API_WINDOW_MS);
 }
 
+// ─── Demo sandbox accounts — per IP, unauthenticated endpoint ────────────────
+//
+// POST /api/demo/session creates an account with no credentials presented, so
+// it is the one write surface on this deployment a stranger can reach. Three
+// per hour is enough for a reviewer who signs out and comes back; it is not
+// enough to fill the table. lib/demoAccounts.ts caps and expires them as well.
+
+const DEMO_LIMIT = 3;
+const DEMO_WINDOW_MS = 60 * 60 * 1000;
+
+export async function checkDemoSessionRateLimit(ip: string): Promise<RateLimitResult> {
+  return store.check(`demo:${ip}`, DEMO_LIMIT, DEMO_WINDOW_MS);
+}
+
+export async function recordDemoSessionAttempt(ip: string): Promise<void> {
+  await store.recordFailure(`demo:${ip}`, DEMO_WINDOW_MS);
+}
+
+// ─── Demo order flow — tighter than a real account ───────────────────────────
+//
+// Ordinary accounts belong to people the operator invited and are not rate
+// limited on /api/orders beyond the idempotency key. A demo account is handed
+// out to anyone with the link, so it gets a ceiling.
+
+const DEMO_ORDER_LIMIT = 30;
+const DEMO_ORDER_WINDOW_MS = 60 * 1000;
+
+export async function checkDemoOrderRateLimit(
+  userId: string | number
+): Promise<RateLimitResult> {
+  return store.check(`demoorder:${userId}`, DEMO_ORDER_LIMIT, DEMO_ORDER_WINDOW_MS);
+}
+
+export async function recordDemoOrder(userId: string | number): Promise<void> {
+  await store.recordFailure(`demoorder:${userId}`, DEMO_ORDER_WINDOW_MS);
+}
+
 // ─── API-key creation — per user, so a logged-in account can't spam keys ──────
 
 const KEY_CREATE_LIMIT = 20;

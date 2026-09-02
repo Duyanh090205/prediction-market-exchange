@@ -71,6 +71,10 @@ model User {
   discordId       String?   @unique
   discordUsername String?
   discordLinkedAt DateTime?
+  // Sandbox account minted by "Enter as demo trader" on the public deployment.
+  // Flagged in its own column rather than inferred from the username, so the
+  // guardrails (no API keys, recycling cap) key off one boolean.
+  isDemo         Boolean    @default(false)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -88,6 +92,7 @@ model User {
   receivedMessages     Message[]            @relation("ReceivedMessages")
 
   @@index([status])
+  @@index([isDemo, createdAt])
 }
 
 // Bot/programmatic-access credential. A user mints an ApiKey, gets the full
@@ -129,6 +134,10 @@ model Contract {
   // The user who created this market. They are its primary market maker and
   // may settle it (alongside any admin). Null for legacy/admin-seeded markets.
   createdById     Int?
+  // Row came from scripts/seed-demo.mjs. Seed provenance belongs in a column,
+  // not in `description` — a marker appended to that text renders verbatim in
+  // the market header for every visitor.
+  isDemoSeed      Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

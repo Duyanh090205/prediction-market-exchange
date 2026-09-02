@@ -25,6 +25,11 @@ export interface LabUser {
   username: string;
   /** "ADMIN" | "LIQUIDITY_PROVIDER" | "USER" */
   role: string;
+  /**
+   * Sandbox account minted by "Enter as demo trader". Always false under Lab
+   * SSO — demo accounts only exist on the public standalone deployment.
+   */
+  isDemo: boolean;
 }
 
 interface LabJwtPayload {
@@ -44,7 +49,13 @@ export async function getLabUser(): Promise<LabUser | null> {
   if (!LAB_JWT_SECRET) {
     const session = await auth();
     const su = session?.user as
-      | { id?: string; email?: string | null; username?: string; role?: string }
+      | {
+          id?: string;
+          email?: string | null;
+          username?: string;
+          role?: string;
+          isDemo?: boolean;
+        }
       | undefined;
     if (!su?.id) return null;
     return {
@@ -52,6 +63,7 @@ export async function getLabUser(): Promise<LabUser | null> {
       email: su.email ?? "",
       username: su.username ?? "",
       role: su.role ?? "USER",
+      isDemo: su.isDemo ?? false,
     };
   }
 
@@ -115,5 +127,6 @@ export async function getLabUser(): Promise<LabUser | null> {
     email: user.email,
     username: user.username,
     role: user.role,
+    isDemo: false,
   };
 }

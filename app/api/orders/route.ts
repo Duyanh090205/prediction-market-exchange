@@ -4,6 +4,10 @@ import { createRequestLogger } from "@/lib/logger";
 import { csrfGuard } from "@/lib/csrf";
 import { validateIdempotencyHeader } from "@/lib/idempotency";
 import { placeOrder } from "@/lib/orderService";
+import {
+  checkDemoOrderRateLimit,
+  recordDemoOrder,
+} from "@/lib/rate-limiter";
 
 // POST /api/orders — Matching Engine (instant execution), cookie-authenticated.
 // Thin adapter: cookie auth + CSRF + idempotency-header validation, then the
@@ -34,6 +38,22 @@ export async function POST(request: NextRequest) {
     if (!user) {
       reqLog.finish(401);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Real accounts belong to people the operator invited and are bounded by
+    // margin alone. A demo account is public, so it gets a per-minute ceiling
+    // on top of that.
+    if (user.isDemo) {
+      const rl = await checkDemoOrderRateLimit(user.id);
+      if (!rl.allowed) {
+        const retryAfterSec = Math.ceil((rl.retryAfterMs ?? 60_000) / 1000);
+        reqLog.finish(429, user.id);
+        return NextResponse.json(
+          { error: "Demo accounts are limited to 30 orders per minute" },
+          { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+        );
+      }
+      await recordDemoOrder(user.id);
     }
 
     const body = await request.json();

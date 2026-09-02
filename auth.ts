@@ -197,6 +197,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: user.username,
           role: user.role,
           username: user.username,
+          isDemo: user.isDemo,
         };
       },
     }),
@@ -209,6 +210,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id;
         token.role = (user as { role?: string }).role;
         token.username = (user as { username?: string }).username;
+        token.isDemo = (user as { isDemo?: boolean }).isDemo ?? false;
       }
       return token;
     },
@@ -229,12 +231,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = String(token.id);
         session.user.role = token.role as string;
         session.user.username = token.username as string;
+        session.user.isDemo = (token.isDemo as boolean | undefined) ?? false;
         return session;
       }
 
       const dbUser = await prisma.user.findUnique({
         where: { id: Number(token.id) },
-        select: { id: true, role: true, username: true, status: true },
+        select: { id: true, role: true, username: true, status: true, isDemo: true },
       });
 
       if (!dbUser || dbUser.status !== "ACTIVE") {
@@ -245,11 +248,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       token.role = dbUser.role;
       token.username = dbUser.username;
+      token.isDemo = dbUser.isDemo;
       token.lastChecked = now;
 
       session.user.id = String(dbUser.id);
       session.user.role = dbUser.role;
       session.user.username = dbUser.username;
+      session.user.isDemo = dbUser.isDemo;
 
       return session;
     },
