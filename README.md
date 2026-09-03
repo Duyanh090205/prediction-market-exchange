@@ -216,7 +216,7 @@ See [`workflow/`](./workflow/) for full documentation:
 - [`project-walkthrough.md`](./workflow/project-walkthrough.md) — Complete project walkthrough (start to finish)
 - [`phase-1.md`](./workflow/phase-1.md) — Phase 1 checkpoint tracker (all complete)
 - [`trading_platform_plan_v5.md`](./workflow/trading_platform_plan_v5.md) — Original technical specification
-- [`hyperliquid_research_report.md`](./workflow/hyperliquid_research_report.md) — HyperLiquid architecture research
+- [`hyperliquid_research_report.md`](./workflow/hyperliquid_research_report.md) — Design input: architecture notes on Hyperliquid (on-chain CLOB, price-time priority, double margining), background reading for the matching and margin design
 
 ## License
 

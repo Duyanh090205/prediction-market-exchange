@@ -87,7 +87,7 @@ HyperLiquid primarily focuses on **Perpetual Futures** (perps), derivative contr
 Because execution happens natively on the blockchain, latency between trade submission and fill can technically witness micro-movements in oracle-provided asset prices. To protect the protocol from insolvency or unfair liquidations, HyperCore utilizes a specialized **Double Margining** mechanic.
 
 1. **Submission Check:** When an order is mathematically submitted to the mempool, the protocol checks the wallet against required initial margin.
-2. **Execution Check:** At the exact millisecond the transaction is matched by HyperBFT and ordered in the block, margin requirements are re-assessed against the live, unified L1 state. If market conditions have violated the margin thresholds between submission and execution, the order is dropped, preventing toxic toxic fills from jeopardizing network health.
+2. **Execution Check:** At the exact millisecond the transaction is matched by HyperBFT and ordered in the block, margin requirements are re-assessed against the live, unified L1 state. If market conditions have violated the margin thresholds between submission and execution, the order is dropped, preventing toxic fills from jeopardizing network health.
 
 ## 5. Conclusion
 
