@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getSocket } from "@/lib/socket-client";
+import { contractTime } from "@/lib/formatDate";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 
 export interface ChatMessage {
@@ -117,7 +118,7 @@ export default function ChatPanel({ contractId, currentUserId, initialMessages, 
                   {m.username}
                 </span>
                 <span style={{ color: "#5a5a72", fontSize: "0.6875rem", marginRight: "0.4rem" }}>
-                  {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {contractTime(m.createdAt)}
                 </span>
                 <span style={{ color: "#e4e4ed", wordBreak: "break-word" }}>{m.body}</span>
               </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
+import { contractDateTime } from "@/lib/formatDate";
 
 interface NotificationItem {
   id: number;
@@ -195,7 +196,7 @@ export default function NotificationPanel() {
                   {n.message}
                 </p>
                 <p style={{ margin: 0, fontSize: "0.6875rem", color: "#5a5a72" }}>
-                  {new Date(n.createdAt).toLocaleString()}
+                  {contractDateTime(n.createdAt)}
                 </p>
               </>
             );

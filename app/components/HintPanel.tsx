@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { withTradingBasePath } from "@/lib/withTradingBasePath";
 import { getSocket } from "@/lib/socket-client";
+import { contractDateTime } from "@/lib/formatDate";
 
 interface HintAuthor {
   id: number;
@@ -119,12 +120,7 @@ function HintItem({
       >
         <span style={{ fontSize: "0.75rem", color: "#5a5a72" }}>
           {hint.author.username} ·{" "}
-          {new Date(hint.createdAt).toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {contractDateTime(hint.createdAt)}
         </span>
         {canDelete && (
           <button
