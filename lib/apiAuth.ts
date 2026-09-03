@@ -2,7 +2,7 @@
  * Bearer-token resolver for the programmatic /api/v1 namespace.
  *
  * This is the API analog of lib/labAuth.ts's getLabUser: instead of a browser
- * `lab_session` cookie, a bot presents `Authorization: Bearer tgk_...`. We look
+ * session cookie, a bot presents `Authorization: Bearer tgk_...`. We look
  * the key up by its prefix, verify the secret hash, and return the owning User.
  *
  * Key model (decided design — see project memory "Build the bot API key system"):

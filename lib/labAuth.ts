@@ -11,9 +11,7 @@
  *   if (!user) redirect("/login");
  */
 
-import { cookies } from "next/headers";
 import { auth } from "@/auth";
-import { prisma } from "./prisma";
 
 export interface LabUser {
   /** Trading-DB row id (string, matching NextAuth session.user.id shape) */

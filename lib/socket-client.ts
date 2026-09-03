@@ -5,9 +5,9 @@
 //
 // Two namespaces, matching server.js:
 //
-//   "/"              authenticated. The server reads the Lab `lab_session`
-//                    cookie (or the NextAuth session cookie) off the WebSocket
-//                    upgrade request and rejects the handshake without one.
+//   "/"              authenticated. The server reads the NextAuth session
+//                    cookie off the WebSocket upgrade request and rejects the
+//                    handshake without one.
 //                    Carries order fills, positions, chat, hints.
 //
 //   "/market-data"   public. No session, no cookies, no user identity. Carries
