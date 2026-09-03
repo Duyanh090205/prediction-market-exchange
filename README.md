@@ -15,7 +15,7 @@ To be precise about what "working" claims: this was built as the engine for a pr
 trading game. The matching, margin and settlement paths are complete and tested, but it
 has never taken live order flow.
 
-**~15.6k lines - 103 tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
+**~21.6k lines - 103 tests - Next.js 15, PostgreSQL, Prisma, Socket.IO**
 
 ## Quickstart
 
