@@ -69,6 +69,9 @@ export default async function Navbar() {
         >
           Trading Game
         </Link>
+        <Link href="/settled" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
+          Settled
+        </Link>
         <Link href="/leaderboard" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
           Leaderboard
         </Link>

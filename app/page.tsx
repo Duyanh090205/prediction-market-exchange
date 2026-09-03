@@ -162,16 +162,31 @@ export default async function HomePage() {
 
         {settledContracts.length > 0 && (
           <section style={{ marginTop: "3rem" }}>
-            <h2
+            <div
               style={{
-                fontSize: "1.125rem",
-                fontWeight: 700,
-                color: "#e4e4ed",
-                margin: "0 0 0.25rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: "1rem",
+                flexWrap: "wrap",
               }}
             >
-              Recently settled
-            </h2>
+              <h2
+                style={{
+                  fontSize: "1.125rem",
+                  fontWeight: 700,
+                  color: "#e4e4ed",
+                  margin: "0 0 0.25rem",
+                }}
+              >
+                Recently settled
+              </h2>
+              {/* The Navbar is only rendered for signed-in users, so this is the
+                  settlement record's only entry point for a visitor. */}
+              <Link href="/settled" style={{ fontSize: "0.875rem", color: "#818cf8", textDecoration: "none" }}>
+                All settled markets →
+              </Link>
+            </div>
             <p style={{ margin: "0 0 1.25rem", fontSize: "0.9375rem", color: "#8888a0" }}>
               Closed at a published value, with every open position marked
               against it in one transaction — P&amp;L per trade, balances and

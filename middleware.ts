@@ -31,7 +31,7 @@ const PUBLIC_API_PATTERNS = [/^\/api\/contracts\/\d+\/price-history$/];
 // and each market's page are readable without an account — a login wall is half
 // the reason a demo link gets ignored. Those pages gate every write surface on
 // the session themselves; /markets/create is not listed here and stays private.
-const PUBLIC_PAGES = ["/", "/markets", "/demo", "/login", "/register", "/reset-password"];
+const PUBLIC_PAGES = ["/", "/markets", "/settled", "/demo", "/login", "/register", "/reset-password"];
 
 // Per-request Content-Security-Policy. Production allows Next.js's inline
 // bootstrap scripts via a fresh per-request nonce + 'strict-dynamic' (no

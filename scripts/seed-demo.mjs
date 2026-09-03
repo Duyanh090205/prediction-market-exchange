@@ -370,23 +370,46 @@ const MARKETS = [
   },
 ];
 
-// One market that has already run its course. It is the only place the
+// Markets that have already run their course. They are the only place the
 // settlement engine is visible from outside: a closing value, P&L realized
 // against it on every position, and the balances and ledger entries that moved
-// with them. It is settled through the app's own route by the account that
+// with them. Each is settled through the app's own route by the account that
 // created it, at the result that account locked at creation — so the integrity
 // rule (commit the outcome before you can see the positions) is exercised too,
 // not just described.
-const SETTLED_MARKET = {
-  title: "US CPI year-over-year print, July 2026 release (basis points)",
-  description:
-    "Headline CPI YoY, quoted in basis points. 310 means 3.10%. Closed on the BLS release; the creator committed the settlement value at creation and could not change it afterwards.",
-  min: 0, max: 800, mid: 296, tick: 4,
-  lockedResult: 289,
-  // Traded over this window, then settled at the end of it.
-  tradedDaysAgo: 11,
-  settledDaysAgo: 6,
-};
+//
+// Three rather than one, closing across about three weeks: a single settled
+// market reads as a feature demo, a run of them reads as a venue with a record.
+// They close in different directions on purpose.
+const SETTLED_MARKETS = [
+  {
+    title: "US CPI year-over-year print, July 2026 release (basis points)",
+    description:
+      "Headline CPI YoY, quoted in basis points. 310 means 3.10%. Closed on the BLS release; the creator committed the settlement value at creation and could not change it afterwards.",
+    min: 0, max: 800, mid: 296, tick: 4,
+    lockedResult: 289,
+    tradedDaysAgo: 11, settledDaysAgo: 6,
+    variant: 4,
+  },
+  {
+    title: "US nonfarm payrolls, August 2026 release (thousands)",
+    description:
+      "Change in nonfarm payrolls, in thousands: 178 means +178,000. Closed on the release, below where the book had been paying up for it.",
+    min: 0, max: 600, mid: 178, tick: 5,
+    lockedResult: 152,
+    tradedDaysAgo: 24, settledDaysAgo: 18,
+    variant: 1,
+  },
+  {
+    title: "Combined points in the college football national championship",
+    description:
+      "Over/under on total points scored by both teams. Closed on the final whistle.",
+    min: 0, max: 120, mid: 52, tick: 2,
+    lockedResult: 61,
+    tradedDaysAgo: 17, settledDaysAgo: 12,
+    variant: 2,
+  },
+];
 
 /**
  * Cancel the seed makers' resting quotes on a market that already exists.
@@ -568,8 +591,7 @@ async function spreadTape(contractIds, since, { days = TAPE_DAYS, endMs = null }
  * own output. Only two timestamps are rewritten afterwards — the tape and the
  * settlement stamp — for the same reason the open markets' tape is rewritten.
  */
-async function seedSettledMarket({ makers, keys, since }) {
-  const spec = SETTLED_MARKET;
+async function seedSettledMarket({ makers, keys, since, spec }) {
   const found = await prisma.contract.findFirst({ where: { title: spec.title } });
   if (found && found.status === "SETTLED") {
     const n = await prisma.trade.count({ where: { contractId: found.id } });
@@ -627,9 +649,8 @@ async function seedSettledMarket({ makers, keys, since }) {
       },
     }));
 
-  // A different variant again, so the settled market does not retrace the
-  // shape of an open one.
-  const { filled, rejected } = await tradeSession(contract, spec, makers, keys, spec.mid, 4);
+  // Its own flow shape, so a settled market does not retrace an open one.
+  const { filled, rejected } = await tradeSession(contract, spec, makers, keys, spec.mid, spec.variant);
 
   // The tape has to sit before the settlement, not around now.
   const settledAt = daysAgo(spec.settledDaysAgo);
@@ -727,6 +748,56 @@ async function resetSeedData(seedUsers) {
   return { contracts: ids.length, demoAccounts: demoIds.length };
 }
 
+/**
+ * Close any seeded market whose settlement date has already gone by.
+ *
+ * A demo link sits on a CV for months. Without this, every open market here
+ * eventually shows a settlement date in the past and stays open — which reads
+ * as an exchange that forgot to settle, and is worse than having no date at
+ * all. Rerunning the seed keeps the record honest.
+ *
+ * These markets carry no locked result (only the historical ones do), so they
+ * close at the last price they actually traded at. That is the market's own
+ * answer rather than an invented one, and the route still writes the P&L,
+ * balances and ledger the same way.
+ */
+async function settleExpiredMarkets(makers) {
+  const expired = await prisma.contract.findMany({
+    where: { isDemoSeed: true, status: "OPEN", settlesAt: { lt: new Date() } },
+    select: { id: true, title: true, createdById: true, minPrice: true, maxPrice: true },
+  });
+  if (expired.length === 0) return 0;
+
+  // Only an admin or the market's creator may settle it, and the seed's markets
+  // alternate between the two makers.
+  const cookies = new Map();
+  for (const m of makers) cookies.set(m.id, await loginAs(m.email, MAKER_PASSWORD));
+
+  let closed = 0;
+  for (const c of expired) {
+    const cookie = cookies.get(c.createdById);
+    if (!cookie) {
+      console.log(`  market ${c.id}: no seeded creator, leaving it open`);
+      continue;
+    }
+    const last = await prisma.trade.findFirst({
+      where: { contractId: c.id },
+      orderBy: { createdAt: "desc" },
+      select: { strike: true },
+    });
+    const value = last ? last.strike : Math.round((c.minPrice + c.maxPrice) / 2);
+    const res = await settleContract(cookie, c.id, value);
+    if (res.status === 200 || res.status === 201) {
+      await prisma.contract.update({ where: { id: c.id }, data: { settledAt: new Date() } });
+      closed++;
+      console.log(`  market ${c.id} "${c.title.slice(0, 44)}…" settled at ${value} (last traded price)`);
+    } else {
+      console.log(`  market ${c.id}: settle failed ${res.status} ${res.body}`);
+    }
+  }
+  return closed;
+}
+
 const c_isOpen = (c) => c.status === "OPEN";
 const daysFromNow = (d) => new Date(Date.now() + d * 24 * 60 * 60 * 1000);
 const daysAgo = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
@@ -800,7 +871,11 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
   );
 
   if (process.env.SEED_ONLY_SETTLE === "1") {
-    await seedSettledMarket({ makers, keys: [], since });
+    for (const spec of SETTLED_MARKETS) {
+      await seedSettledMarket({ makers, keys: [], since, spec });
+    }
+    const closed = await settleExpiredMarkets(makers);
+    if (closed > 0) console.log(`Closed ${closed} market(s) whose settlement date had passed.`);
     return;
   }
 
@@ -881,7 +956,12 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
   const moved = await spreadTape(created.map((c) => c.contract.id), since);
   console.log(`Tape spread over ${TAPE_DAYS}d: ${moved} fills restamped.`);
 
-  await seedSettledMarket({ makers, keys, since });
+  for (const spec of SETTLED_MARKETS) {
+    await seedSettledMarket({ makers, keys, since, spec });
+  }
+
+  const closed = await settleExpiredMarkets(makers);
+  if (closed > 0) console.log(`Closed ${closed} market(s) whose settlement date had passed.`);
 
   for (const { contract } of created) {
     const n = await prisma.trade.count({ where: { contractId: contract.id } });
