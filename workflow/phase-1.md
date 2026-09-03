@@ -169,7 +169,7 @@ Replaces the legacy take-request → confirm flow with instant execution. The Ta
 - **Database**: PostgreSQL on Railway — `prisma migrate deploy` applies all migrations including `20260427200000_phase1_drop_takerequest_add_userstatus_pricebands`
 - **App**: DigitalOcean App Platform — connected to GitHub main, auto-deploy on push
 - **Server**: Custom `node server.js` for Next.js + Socket.IO (+ optional Redis adapter)
-- **Domain**: iterlight.com with SSL auto-provisioned by DO
+- **Domain**: <your-domain> with SSL auto-provisioned by DO
 - **Required env vars**: `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `RESET_TOKEN_SECRET`, `CRON_SECRET`
 - **Optional env vars**: `REDIS_URL` (activates Redis-backed rate limiter + Socket.IO adapter for horizontal scale)
 

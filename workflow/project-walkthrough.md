@@ -8,7 +8,7 @@
 
 A **prediction market** platform for binary spread betting — players bet on numerical outcomes (e.g., "What will BTC price be Friday?") OVER/UNDER a strike, fixed ±size coin payouts. Zero-sum, no house edge. Architecture is built to scale beyond a closed group: admin-gated public registration, instant CLOB matching, Redis-ready rate limiter and WebSocket layer.
 
-**Live at**: [iterlight.com](https://iterlight.com)
+**Live at**: [https://prediction-market-exchange.onrender.com](https://prediction-market-exchange.onrender.com)
 
 ---
 
@@ -61,7 +61,7 @@ A **prediction market** platform for binary spread betting — players bet on nu
 | Real-time | Socket.IO + custom `server.js` | Bidirectional WebSocket with rooms, optional Redis adapter |
 | Cache / scale | Optional Redis (`REDIS_URL`) | Rate limiter store + Socket.IO multi-pod adapter |
 | Hosting | DigitalOcean App Platform | Auto-deploy from GitHub, SSL, custom domain |
-| Domain | iterlight.com | Cloudflare DNS → DO App Platform |
+| Domain | <your-domain> | Cloudflare DNS → DO App Platform |
 
 ---
 
@@ -349,7 +349,7 @@ GitHub (main) ──auto-deploy──▶ DigitalOcean App Platform
 |----------|---------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `NEXTAUTH_SECRET` | JWT signing secret |
-| `NEXTAUTH_URL` | App URL (https://iterlight.com) — also used by CSRF guard |
+| `NEXTAUTH_URL` | App URL (https://<your-domain>) — also used by CSRF guard |
 | `RESET_TOKEN_SECRET` | Password reset JWT secret |
 | `CRON_SECRET` | Bearer token for cron endpoints |
 

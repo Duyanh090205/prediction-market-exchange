@@ -37,6 +37,9 @@ RUN_DB_ITEST=1 npx jest  # all 103
 > sign in with `demo@example.com` / `demo-trader-2027` to place orders against the
 > real matching engine. It has never taken live order flow.
 
+> **Design docs.** How this was planned before it was built - the spec, the phase-1
+> tracker and a walkthrough - is in [`workflow/`](./workflow/).
+
 ## How It Works
 
 1. **Admin** creates a contract — a question with one real numerical answer
@@ -180,9 +183,6 @@ Use `TRADING_DATABASE_DIRECT_URL` from the control panel’s **direct / non-pool
 | `AUTH_TRUST_HOST` | Set `true` behind a reverse proxy (DigitalOcean App Platform, nginx) — avoids `UntrustedHost` |
 | `TRADING_BASE_PATH` | Optional base path when mounted as sub-app (ex: `/trading`) |
 | `NEXT_PUBLIC_TRADING_BASE_PATH` | Public base path for Socket.IO client (usually same as `TRADING_BASE_PATH`) |
-| `LAB_SSO_SHARED_SECRET` | Shared secret used to verify Lab-issued SSO handoff token |
-| `LAB_SSO_ISSUER` | Expected JWT issuer for handoff token (`iterlight-lab-backend`) |
-| `LAB_SSO_AUDIENCE` | Expected JWT audience (`trading-game-platform`) |
 | `RESET_TOKEN_SECRET` | Random 32-byte base64 string for password reset tokens |
 | `CRON_SECRET` | Bearer token for cron cleanup endpoints |
 

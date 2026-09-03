@@ -45,7 +45,7 @@ A web application for running prediction-market games on numerical outcomes — 
 | Cache / scale | Optional Redis (`REDIS_URL`) | Pluggable rate-limiter store + Socket.IO multi-pod adapter |
 | Frontend | Next.js App Router — Server & Client Components + Tailwind | Everything the user sees |
 | Hosting | Digital Ocean App Platform (app) + Railway (database) | Live on the internet |
-| Domain | iterlight.com | Custom domain pointing to App Platform |
+| Domain | <your-domain> | Custom domain pointing to App Platform |
 
 **Router consistency rule:** The entire project uses App Router only. Pages live in `app/`, API endpoints live in `app/api/`. No `pages/` folder exists anywhere. Mixing the two routers will cause unpredictable behavior and must be avoided from day one.
 
@@ -524,11 +524,11 @@ If `REDIS_URL` is set, install `ioredis` and `@socket.io/redis-adapter` in produ
 1. Provision PostgreSQL (Railway). Run `prisma migrate deploy` — applies all migrations including `20260427200000_phase1_drop_takerequest_add_userstatus_pricebands`
 2. (Optional) Provision Redis and set `REDIS_URL`
 3. Deploy `server.js` on DigitalOcean App Platform with the env vars above. Build command: `npm run build`. Run command: `node server.js`
-4. Point `iterlight.com` to App Platform, wait for SSL provisioning
+4. Point `<your-domain>` to App Platform, wait for SSL provisioning
 5. Seed at least one ADMIN account; everyone else can self-register through `/register` and is approved by admin
 
 ### Post-deploy checks
-- `https://iterlight.com/api/health` returns `{ status: "ok" }`
+- `https://<your-domain>/api/health` returns `{ status: "ok" }`
 - Sign up via `/register`, confirm account is PENDING, admin approves, login succeeds
 - A LIMIT order against an LP quote settles the trade row with the order's idempotencyKey persisted
 
@@ -559,7 +559,7 @@ If `REDIS_URL` is set, install `ioredis` and `@socket.io/redis-adapter` in produ
 | CSRF | Strict Origin/Referer match against `NEXTAUTH_URL`; refuses if `NEXTAUTH_URL` unset |
 | Rate limiter | Pluggable in-memory | Redis backend; login + register scopes |
 | Hosting | DigitalOcean App Platform + Railway PostgreSQL (+ optional Redis) |
-| Domain | iterlight.com, SSL auto-provisioned |
+| Domain | <your-domain>, SSL auto-provisioned |
 | Router | App Router only |
 | Timezones | UTC everywhere |
 | Password reset | Admin-issued JWT, 1 h expiry, audit logged; admin never sees new password |
