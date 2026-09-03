@@ -1,12 +1,19 @@
 import { getLabUser } from "@/lib/labAuth";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
+import GuestBanner from "@/app/components/GuestBanner";
+
+// Readable without an account, like the market pages and the settlement record.
+// Ranking is computed from SETTLEMENT ledger entries, so this is the clearest
+// per-player view of what the settlement engine actually did — and there is
+// nothing here a visitor cannot already infer from the public tape, which names
+// both sides of every trade.
+export const dynamic = "force-dynamic";
 
 export default async function LeaderboardPage() {
   const currentUser = await getLabUser();
-  if (!currentUser) redirect("/login");
+  const currentUserId = currentUser ? Number(currentUser.id) : -1;
 
   // Rank by SUM(delta) from SETTLEMENT entries — authoritative P&L source
   const ledgerTotals = await prisma.balanceLedger.groupBy({
@@ -43,6 +50,7 @@ export default async function LeaderboardPage() {
   return (
     <>
       <Navbar />
+      {!currentUser && <GuestBanner />}
       <main style={{ maxWidth: "720px", margin: "0 auto", padding: "2rem 1.5rem" }}>
         <Link href="/" style={{ fontSize: "0.875rem", color: "#5a5a72", textDecoration: "none", display: "inline-block", marginBottom: "1rem" }}>
           ← Markets
@@ -97,7 +105,7 @@ export default async function LeaderboardPage() {
                   key={user.id}
                   style={{
                     background:
-                      user.id === Number(currentUser.id)
+                      user.id === currentUserId
                         ? "rgba(99,102,241,0.06)"
                         : "transparent",
                   }}
@@ -128,7 +136,7 @@ export default async function LeaderboardPage() {
                     >
                       {user.username}
                     </Link>
-                    {user.id === Number(currentUser.id) && (
+                    {user.id === currentUserId && (
                       <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#818cf8" }}>
                         (you)
                       </span>

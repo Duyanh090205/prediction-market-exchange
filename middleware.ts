@@ -31,7 +31,7 @@ const PUBLIC_API_PATTERNS = [/^\/api\/contracts\/\d+\/price-history$/];
 // and each market's page are readable without an account — a login wall is half
 // the reason a demo link gets ignored. Those pages gate every write surface on
 // the session themselves; /markets/create is not listed here and stays private.
-const PUBLIC_PAGES = ["/", "/markets", "/settled", "/demo", "/login", "/register", "/reset-password"];
+const PUBLIC_PAGES = ["/", "/markets", "/settled", "/leaderboard", "/demo", "/login", "/register", "/reset-password"];
 
 // Per-request Content-Security-Policy. Production allows Next.js's inline
 // bootstrap scripts via a fresh per-request nonce + 'strict-dynamic' (no
@@ -78,10 +78,16 @@ export async function middleware(req: NextRequest) {
   };
 
 
-  // Always allow static assets
+  // Always allow static assets, including the generated icon and social card.
+  // Those two are fetched by crawlers with no session — a link pasted into
+  // Slack or LinkedIn is unfurled by a bot, not by the person pasting it — and
+  // the session gate was redirecting them to /login, so the preview would have
+  // silently come back blank however well the image was drawn.
   if (
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/favicon")
+    pathname.startsWith("/favicon") ||
+    pathname === "/icon" ||
+    pathname === "/opengraph-image"
   ) {
     return pass();
   }

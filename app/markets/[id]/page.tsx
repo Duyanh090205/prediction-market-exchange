@@ -11,12 +11,12 @@ import QuoteCard from "@/app/components/QuoteCard";
 import HintPanel from "@/app/components/HintPanel";
 import PostQuoteForm from "@/app/components/PostQuoteForm";
 import MarketOrderForm from "@/app/components/MarketOrderForm";
-import AdminTradeDelete from "@/app/components/AdminTradeDelete";
 import AdminDeleteMarketButton from "@/app/components/AdminDeleteMarketButton";
 import SettleMarketButton from "@/app/components/SettleMarketButton";
 import ChatPanel from "@/app/components/ChatPanel";
 import OrderBook, { type BookLevel, type BookEntry } from "@/app/components/OrderBook";
-import { sideColor } from "@/lib/theme";
+import { contractDay } from "@/lib/formatDate";
+import TradeTape, { type TapeRow } from "@/app/components/TradeTape";
 
 // Always render this page fresh. It is a live order book — ContractRoom calls
 // router.refresh() whenever a quote or a fill arrives on the socket — so there
@@ -80,6 +80,8 @@ export default async function MarketPage({
   const currentUserRole = user?.role ?? "GUEST";
   const isAdmin = currentUserRole === "ADMIN";
   const isSettled = contract.status === "SETTLED";
+  const canPostHint =
+    currentUserRole === "LIQUIDITY_PROVIDER" || currentUserRole === "ADMIN";
   // Everyone — including admins — can quote and trade.
   const canPostQuote = true;
 
@@ -132,13 +134,33 @@ export default async function MarketPage({
     createdAt: m.createdAt.toISOString(),
   }));
 
-  // Dates are rendered on the server with a fixed locale: toLocaleDateString()
-  // with no locale resolves differently on the server and in the browser, which
-  // React reports as a hydration mismatch.
-  const dateLabel = (d: Date) =>
-    d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  const settlesLabel = contract.settlesAt ? dateLabel(contract.settlesAt) : null;
-  const settledLabel = contract.settledAt ? dateLabel(contract.settledAt) : null;
+  // One row per print. The taker is the aggressor; the maker holds the other
+  // side, so OVER and UNDER are derived from takerSide rather than stored.
+  const tapeRows: TapeRow[] = contract.trades.map((t) => {
+    const overIsTaker = t.takerSide === "OVER";
+    const overUser = overIsTaker ? t.taker : t.maker;
+    const underUser = overIsTaker ? t.maker : t.taker;
+    return {
+      id: t.id,
+      takerSide: t.takerSide as "OVER" | "UNDER",
+      strike: t.strike,
+      size: t.size,
+      at: t.createdAt.toISOString(),
+      over: {
+        id: overUser.id,
+        username: overUser.username,
+        pnl: overIsTaker ? t.takerPnl : t.makerPnl,
+      },
+      under: {
+        id: underUser.id,
+        username: underUser.username,
+        pnl: overIsTaker ? t.makerPnl : t.takerPnl,
+      },
+    };
+  });
+
+  const settlesLabel = contract.settlesAt ? contractDay(contract.settlesAt) : null;
+  const settledLabel = contract.settledAt ? contractDay(contract.settledAt) : null;
 
   const sectionLabel: React.CSSProperties = {
     fontSize: "0.6875rem",
@@ -263,8 +285,10 @@ export default async function MarketPage({
             <OrderBook asks={asks} bids={bids} isAdmin={isAdmin} minPrice={contract.minPrice} maxPrice={contract.maxPrice} />
 
             {/* Hints — the card is gated with its contents, not around them:
-                rendering the shell for a signed-out visitor left an empty box. */}
-            {user && (
+                rendering the shell with nothing in it left an empty box. Only
+                market makers and admins can post one, so for everyone else an
+                empty hint list has nothing to offer and nothing to add to. */}
+            {user && (contract.hints.length > 0 || canPostHint) && (
               <div
                 style={{
                   marginTop: "0.5rem",
@@ -429,106 +453,7 @@ export default async function MarketPage({
             )}
           </p>
 
-          {contract.trades.length === 0 ? (
-            <p style={{ color: "#5a5a72", fontSize: "0.875rem", margin: 0 }}>
-              No confirmed trades yet.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "0.875rem",
-                }}
-              >
-                <thead>
-                  <tr>
-                    {["Player", "Side", "Strike", "Size", ...(isSettled ? ["P&L"] : []), "Time", ...(isAdmin ? [""] : [])].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: "left",
-                          padding: "0.5rem 0.75rem",
-                          fontSize: "0.6875rem",
-                          fontWeight: 700,
-                          color: "#5a5a72",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.06em",
-                          borderBottom: "1px solid #1a1a2e",
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {contract.trades.map((t) => {
-                    // Render each trade as TWO separate legs (rows): the OVER
-                    // player and the UNDER player. Taker side is recorded; the
-                    // maker holds the opposite side.
-                    const overUser = t.takerSide === "OVER" ? t.taker : t.maker;
-                    const underUser = t.takerSide === "OVER" ? t.maker : t.taker;
-                    // Realized P&L belongs to whichever side of the trade the
-                    // player was on, not to the OVER/UNDER label.
-                    const overIsTaker = t.takerSide === "OVER";
-                    const legs = [
-                      {
-                        user: overUser,
-                        side: "OVER" as const,
-                        pnl: overIsTaker ? t.takerPnl : t.makerPnl,
-                      },
-                      {
-                        user: underUser,
-                        side: "UNDER" as const,
-                        pnl: overIsTaker ? t.makerPnl : t.takerPnl,
-                      },
-                    ];
-                    return legs.map((leg, i) => {
-                      const c = sideColor(leg.side);
-                      const first = i === 0;
-                      // Divider only after the second leg, so a trade's two rows
-                      // read as one grouped pair.
-                      const bb = first ? "none" : "1px solid #1a1a2e";
-                      const cell: React.CSSProperties = { padding: "0.5rem 0.75rem", borderBottom: bb };
-                      return (
-                        <tr key={`${t.id}-${leg.side}`}>
-                          <td style={{ ...cell, fontWeight: 600, color: c.fg }}>
-                            <Link href={`/players/${leg.user.id}`} style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted currentColor" }}>
-                              {leg.user.username}
-                            </Link>
-                          </td>
-                          <td style={{ ...cell, fontWeight: 700, color: c.fg }}>{leg.side}</td>
-                          <td style={{ ...cell, color: "#818cf8", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{t.strike}</td>
-                          <td style={{ ...cell, color: "#e4e4ed", fontVariantNumeric: "tabular-nums" }}>{t.size}</td>
-                          {isSettled && (
-                            <td
-                              style={{
-                                ...cell,
-                                fontWeight: 700,
-                                fontVariantNumeric: "tabular-nums",
-                                color:
-                                  leg.pnl == null ? "#5a5a72" : leg.pnl > 0 ? "#22c55e" : leg.pnl < 0 ? "#ef4444" : "#8888a0",
-                              }}
-                            >
-                              {leg.pnl == null ? "—" : leg.pnl > 0 ? `+${leg.pnl}` : String(leg.pnl)}
-                            </td>
-                          )}
-                          <td style={{ ...cell, color: "#5a5a72", fontSize: "0.75rem", whiteSpace: "nowrap" }}>
-                            {first ? new Date(t.createdAt).toLocaleString() : ""}
-                          </td>
-                          {isAdmin && (
-                            <td style={cell}>{first ? <AdminTradeDelete tradeId={t.id} /> : null}</td>
-                          )}
-                        </tr>
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <TradeTape rows={tapeRows} isSettled={isSettled} isAdmin={isAdmin} />
         </div>
       </main>
     </>

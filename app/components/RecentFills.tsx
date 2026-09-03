@@ -89,10 +89,47 @@ export default function RecentFills({
         marginBottom: "2rem",
       }}
     >
-      <style>{`@keyframes fillFlash {
-        from { background: rgba(99,102,241,0.22); }
-        to   { background: transparent; }
-      }`}</style>
+      <style>{`
+        @keyframes fillFlash {
+          from { background: rgba(99,102,241,0.22); }
+          to   { background: transparent; }
+        }
+        .fillRow {
+          display: grid;
+          grid-template-columns: minmax(0,1fr) 4.5rem 3.5rem 3rem 5.5rem;
+          gap: 0.75rem;
+          align-items: center;
+          padding: 0.35rem 0.5rem;
+          border-radius: 0.25rem;
+          text-decoration: none;
+          font-size: 0.8125rem;
+        }
+        .fillRow .fillTitle {
+          color: #8888a0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .fillRow .fillAgo { color: #5a5a72; font-size: 0.75rem; text-align: right; }
+        /* Narrow screens: the five fixed columns left nothing for the title,
+           so the market name vanished and every row read "OVER 128 x4 2h ago"
+           with no way to tell which market it was. Two lines instead. */
+        @media (max-width: 640px) {
+          .fillRow {
+            grid-template-columns: 1fr 3.5rem 3rem 5rem;
+            grid-template-areas:
+              "title title title title"
+              "side  strike size  ago";
+            row-gap: 0.15rem;
+            padding: 0.45rem 0.5rem;
+          }
+          .fillRow .fillTitle { grid-area: title; white-space: normal; }
+          .fillRow .fillSide   { grid-area: side; }
+          .fillRow .fillStrike { grid-area: strike; }
+          .fillRow .fillSize   { grid-area: size; }
+          .fillRow .fillAgo    { grid-area: ago; }
+        }
+      `}</style>
       <p
         style={{
           fontSize: "0.6875rem",
@@ -112,36 +149,23 @@ export default function RecentFills({
             <Link
               key={f.id}
               href={`/markets/${f.contractId}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0,1fr) 4.5rem 3.5rem 3rem 5.5rem",
-                gap: "0.75rem",
-                alignItems: "center",
-                padding: "0.35rem 0.5rem",
-                borderRadius: "0.25rem",
-                textDecoration: "none",
-                fontSize: "0.8125rem",
-                animation: f.fresh ? "fillFlash 1.6s ease-out" : undefined,
-              }}
+              className="fillRow"
+              style={{ animation: f.fresh ? "fillFlash 1.6s ease-out" : undefined }}
             >
-              <span
-                style={{
-                  color: "#8888a0",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {f.title}
+              <span className="fillTitle">{f.title}</span>
+              <span className="fillSide" style={{ color: c.fg, fontWeight: 700 }}>
+                {f.side}
               </span>
-              <span style={{ color: c.fg, fontWeight: 700 }}>{f.side}</span>
-              <span style={{ color: "#818cf8", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+              <span
+                className="fillStrike"
+                style={{ color: "#818cf8", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
+              >
                 {f.strike}
               </span>
-              <span style={{ color: "#e4e4ed", fontVariantNumeric: "tabular-nums" }}>
+              <span className="fillSize" style={{ color: "#e4e4ed", fontVariantNumeric: "tabular-nums" }}>
                 ×{f.size}
               </span>
-              <span style={{ color: "#5a5a72", fontSize: "0.75rem", textAlign: "right" }}>
+              <span className="fillAgo">
                 <Ago iso={f.at} />
               </span>
             </Link>

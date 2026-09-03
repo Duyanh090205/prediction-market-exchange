@@ -8,9 +8,26 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Trading Game Platform",
+  // Matches the repository and the way this project is named elsewhere. The tab
+  // said "Trading Game Platform", which is the name of nothing a reader can look
+  // up.
+  title: {
+    default: "Prediction-Market Exchange",
+    template: "%s · Prediction-Market Exchange",
+  },
   description:
-    "A private prediction market for binary spread betting — OVER/UNDER a strike, fixed ±size payout.",
+    "A working prediction-market exchange: a central limit order book with price-time priority, a margin engine that reserves against worst-case loss, and atomic settlement.",
+  // Needed for the generated opengraph-image to resolve to an absolute URL.
+  // NEXTAUTH_URL is already the public origin on every deployment.
+  metadataBase: new URL(process.env.NEXTAUTH_URL || "http://localhost:3000"),
+  openGraph: {
+    type: "website",
+    siteName: "Prediction-Market Exchange",
+    title: "Prediction-Market Exchange",
+    description:
+      "A central limit order book with price-time priority, a margin engine that reserves against worst-case loss, and atomic settlement. The book is readable without an account.",
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { contractDay } from "@/lib/formatDate";
 
 interface Quote {
   id: number;
@@ -20,16 +21,6 @@ interface ContractCardProps {
     quotes: Quote[];
     _count: { trades: number };
   };
-}
-
-// Fixed locale on both sides of hydration — an unqualified toLocaleDateString()
-// formats differently on the server than in the visitor's browser.
-function day(d: string | Date) {
-  return new Date(d).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export default function ContractCard({ contract }: ContractCardProps) {
@@ -74,12 +65,12 @@ export default function ContractCard({ contract }: ContractCardProps) {
         <p style={{ margin: 0, fontSize: "0.8125rem", color: "#f59e0b", fontWeight: 600 }}>
           Settled at {contract.settlementValue}
           {contract.settledAt ? (
-            <span style={{ color: "#5a5a72", fontWeight: 400 }}> · {day(contract.settledAt)}</span>
+            <span style={{ color: "#5a5a72", fontWeight: 400 }}> · {contractDay(contract.settledAt)}</span>
           ) : null}
         </p>
       ) : contract.settlesAt ? (
         <p style={{ margin: 0, fontSize: "0.8125rem", color: "#5a5a72" }}>
-          Settles <span style={{ color: "#818cf8", fontWeight: 600 }}>{day(contract.settlesAt)}</span>
+          Settles <span style={{ color: "#818cf8", fontWeight: 600 }}>{contractDay(contract.settlesAt)}</span>
         </p>
       ) : null}
 

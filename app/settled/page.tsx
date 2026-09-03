@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import Navbar from "@/app/components/Navbar";
 import GuestBanner from "@/app/components/GuestBanner";
 import { getLabUser } from "@/lib/labAuth";
+import { contractDay } from "@/lib/formatDate";
 
 // The settlement record.
 //
@@ -55,9 +56,6 @@ export default async function SettledPage() {
   const ledgerEntries = await prisma.balanceLedger.count({
     where: { eventType: "SETTLEMENT", contractId: { in: contracts.map((c) => c.id) } },
   });
-
-  const day = (d: Date) =>
-    d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
   const label: React.CSSProperties = {
     fontSize: "0.6875rem",
@@ -172,7 +170,7 @@ export default async function SettledPage() {
                       {c.title}
                     </h2>
                     <span style={{ fontSize: "0.8125rem", color: "#5a5a72", whiteSpace: "nowrap" }}>
-                      {c.settledAt ? day(c.settledAt) : day(c.updatedAt)}
+                      {contractDay(c.settledAt ?? c.updatedAt)}
                     </span>
                   </div>
 

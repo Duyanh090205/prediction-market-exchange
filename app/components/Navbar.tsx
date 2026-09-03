@@ -67,7 +67,7 @@ export default async function Navbar() {
             letterSpacing: "-0.01em",
           }}
         >
-          Trading Game
+          Prediction-Market Exchange
         </Link>
         <Link href="/settled" style={{ fontSize: "0.875rem", color: "#8888a0", textDecoration: "none" }}>
           Settled
