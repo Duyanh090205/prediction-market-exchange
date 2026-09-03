@@ -1,5 +1,8 @@
 # Prediction-Market Exchange
 
+**Live demo:** https://prediction-market-exchange.onrender.com - guest: read-only
+market-data feed; Enter as demo trader: a sandbox with play money that expires in 24 h.
+
 A working prediction-market exchange, built from the matching engine up: a central limit
 order book with price-time priority, a margin engine that reserves against worst-case
 loss, and atomic settlement.
