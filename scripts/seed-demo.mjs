@@ -871,8 +871,12 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
   );
 
   if (process.env.SEED_ONLY_SETTLE === "1") {
+    // Still needs trading keys: a settled market this run has not created yet
+    // has to be created, quoted and traded before there is anything to settle.
+    const onlyKeys = [];
+    for (const t of takers) onlyKeys.push({ user: t, key: await apiKeyFor(t.id) });
     for (const spec of SETTLED_MARKETS) {
-      await seedSettledMarket({ makers, keys: [], since, spec });
+      await seedSettledMarket({ makers, keys: onlyKeys, since, spec });
     }
     const closed = await settleExpiredMarkets(makers);
     if (closed > 0) console.log(`Closed ${closed} market(s) whose settlement date had passed.`);
