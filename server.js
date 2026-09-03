@@ -77,53 +77,15 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
-  const { jwtVerify } = await import("jose");
   const { PrismaClient } = require("@prisma/client");
   const prisma = new PrismaClient();
 
   /**
-   * Match `lib/labAuth.ts`: verify Lab JWT, upsert trading user, return ids for Socket.IO.
-   * Falls back to NextAuth session cookie when Lab cookie is absent or invalid.
+   * Match `lib/labAuth.ts`: resolve the NextAuth session cookie to a user id
+   * and role for Socket.IO.
    * @param {Record<string, string>} cookies
    */
   async function resolveUserFromSocketCookies(cookies) {
-    const labSecret = process.env.LAB_JWT_SECRET;
-    const labToken = cookies.lab_session;
-    if (labSecret && labToken) {
-      try {
-        const { payload } = await jwtVerify(
-          labToken,
-          new TextEncoder().encode(labSecret),
-          { clockTolerance: 60 }
-        );
-        const email = payload.email;
-        if (!email || typeof email !== "string") {
-          return null;
-        }
-        const tradingRole = payload.role === "admin" ? "ADMIN" : "USER";
-        const labUid = payload.userId;
-        const username = `${email.split("@")[0].slice(0, 48)}-${String(labUid ?? "").slice(-6)}`.slice(
-          0,
-          64
-        );
-        const user = await prisma.user.upsert({
-          where: { email },
-          create: {
-            email,
-            username,
-            hashedPassword: `lab-sso:${labUid}`,
-            status: "ACTIVE",
-            role: tradingRole,
-          },
-          update: { status: "ACTIVE" },
-          select: { id: true, role: true },
-        });
-        return { userId: Number(user.id), role: user.role || "USER" };
-      } catch {
-        // fall through to NextAuth
-      }
-    }
-
     const sessionToken = cookies[SESSION_COOKIE_NAME];
     if (!sessionToken) {
       return null;
@@ -174,7 +136,7 @@ app.prepare().then(async () => {
   let publicConnectionCount = 0;
 
   // ── Authentication Middleware ─────────────────────────────────────────────
-  // Prefer Lab `lab_session` (same as HTTP middleware); fall back to NextAuth JWT cookie.
+  // The NextAuth JWT cookie, same as the HTTP middleware.
   io.use(async (socket, next) => {
     try {
       const cookieHeader = socket.handshake.headers?.cookie || "";
@@ -344,7 +306,7 @@ app.prepare().then(async () => {
         url: `http://${hostname}:${port}`,
         websockets: true,
         namespaces: { "/": "authenticated", "/market-data": "public" },
-        authMethod: "lab_session|nextauth-jwt",
+        authMethod: "nextauth-jwt",
         pingIntervalMs: 8 * 60 * 1000,
       })
     );

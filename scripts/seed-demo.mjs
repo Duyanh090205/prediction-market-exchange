@@ -34,6 +34,8 @@
  *                   market or an account this script did not create.
  *   SEED_ALLOW_MISMATCH=1  proceed even when the database is local and the app
  *                   is remote, or the reverse
+ *   SEED_USERS_ONLY=1   upsert the seeded accounts and stop. Rotates every
+ *                   seeded password without touching a single market.
  *   SEED_ONLY_SETTLE=1  skip the open markets entirely and only run the settled
  *                   market step. Use it to finish a run that seeded the open
  *                   markets and then failed at settlement — rerunning the whole
@@ -119,10 +121,12 @@ async function upsertUser({ username, email, role, balance, password }) {
   );
   return prisma.user.upsert({
     where: { email },
-    // Reset the password on a rerun too: the script signs in as a maker to
-    // settle a market through the app's own route, so it has to know the
-    // credential it created on a previous run.
-    update: { status: "ACTIVE", ...(password ? { hashedPassword } : {}) },
+    // Rotate on every run, for every seeded account. The makers need a known
+    // credential within the run (the script signs in as one to settle); the
+    // rest get a fresh random one nobody holds. Whatever a seeded account's
+    // password was before this run — a prior default, a local reset script —
+    // it is not that afterwards.
+    update: { status: "ACTIVE", hashedPassword },
     create: { username, email, hashedPassword, role, status: "ACTIVE", balance },
   });
 }
@@ -869,6 +873,11 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
     `Users ready: ${reviewer.username} + 2 makers + ${takers.length} takers ` +
     `(${seeded} opening-balance ledger entries written)`
   );
+
+  if (process.env.SEED_USERS_ONLY === "1") {
+    console.log("SEED_USERS_ONLY: accounts rotated, nothing else touched.");
+    return;
+  }
 
   if (process.env.SEED_ONLY_SETTLE === "1") {
     // Still needs trading keys: a settled market this run has not created yet

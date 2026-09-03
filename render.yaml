@@ -1,8 +1,7 @@
-# Render blueprint for a standalone deployment.
+# Render blueprint.
 #
-# Standalone means: no Lab SSO. Leaving LAB_JWT_SECRET unset is what switches
-# lib/labAuth.ts and middleware.ts over to this app's own NextAuth credentials
-# session. Do not add it here.
+# Authentication is this app's own NextAuth credentials session; there is no
+# external SSO to configure.
 #
 # The database is Neon, not Render Postgres — Render's free Postgres expires
 # after ~90 days, which would quietly kill the deployment.
