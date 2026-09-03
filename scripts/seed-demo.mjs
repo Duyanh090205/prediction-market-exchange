@@ -34,6 +34,10 @@
  *                   market or an account this script did not create.
  *   SEED_ALLOW_MISMATCH=1  proceed even when the database is local and the app
  *                   is remote, or the reverse
+ *   SEED_ONLY_SETTLE=1  skip the open markets entirely and only run the settled
+ *                   market step. Use it to finish a run that seeded the open
+ *                   markets and then failed at settlement — rerunning the whole
+ *                   script would trade the open markets a second time.
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -200,6 +204,10 @@ async function loginAs(email, password) {
 }
 
 async function settleContract(cookie, contractId, settlementValue) {
+  // Timed: settlement walks every open trade inside one transaction, so how
+  // long it takes is a function of round-trip latency to the database. It is
+  // the first thing to look at if this call ever comes back a bare 500.
+  const startedAt = Date.now();
   const res = await fetch(`${APP_URL}/api/contracts/${contractId}/settle`, {
     method: "POST",
     headers: {
@@ -213,6 +221,7 @@ async function settleContract(cookie, contractId, settlementValue) {
     body: JSON.stringify(settlementValue == null ? {} : { settlementValue }),
   });
   const text = await res.text();
+  console.log(`  settle call: ${res.status} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
   return { status: res.status, body: text.slice(0, 240) };
 }
 
@@ -568,6 +577,39 @@ async function seedSettledMarket({ makers, keys, since }) {
     return;
   }
 
+  // Resume: a previous run may have created and traded this market and then
+  // failed at the settle call, which rolls back cleanly and leaves the market
+  // OPEN with its tape already in place. Re-running the orders would double it.
+  if (found && found.status === "OPEN") {
+    const existingTrades = await prisma.trade.count({ where: { contractId: found.id } });
+    if (existingTrades >= PATH.length / 2) {
+      console.log(
+        `Settled market: #${found.id} already has ${existingTrades} trades — settling only.`
+      );
+      const cookie = await loginAs(makers[0].email, MAKER_PASSWORD);
+      const res = await settleContract(cookie, found.id, null);
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error(`settle failed: ${res.status} ${res.body}`);
+      }
+      await prisma.contract.update({
+        where: { id: found.id },
+        data: { settledAt: daysAgo(spec.settledDaysAgo) },
+      });
+      const after = await prisma.contract.findUnique({
+        where: { id: found.id },
+        select: { status: true, settlementValue: true },
+      });
+      const paid = await prisma.balanceLedger.count({
+        where: { contractId: found.id, eventType: "SETTLEMENT" },
+      });
+      console.log(
+        `Settled market ${found.id}: ${after.status} at ${after.settlementValue} · ` +
+        `${existingTrades} trades · ${paid} ledger entries written`
+      );
+      return;
+    }
+  }
+
   const creator = makers[0];
   const contract =
     found ??
@@ -756,6 +798,11 @@ Refusing to run: the database is ${dbIsLocal ? "local" : "remote"} but the app i
     `Users ready: ${reviewer.username} + 2 makers + ${takers.length} takers ` +
     `(${seeded} opening-balance ledger entries written)`
   );
+
+  if (process.env.SEED_ONLY_SETTLE === "1") {
+    await seedSettledMarket({ makers, keys: [], since });
+    return;
+  }
 
   // Seeded rows are identified by a column, not by a marker inside text a
   // visitor reads. The old `<!-- __demo_seed_v2 -->` suffix on `description`

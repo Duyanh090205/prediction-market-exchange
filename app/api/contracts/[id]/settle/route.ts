@@ -136,6 +136,22 @@ export async function POST(
       throw e;
     }
 
+    // Settlement is a batch: it walks every open trade on the contract and, for
+    // each, writes the trade, both balances, both ledger rows and both
+    // notifications — seven round trips per trade, all inside one transaction
+    // because it has to be all-or-nothing.
+    //
+    // Prisma's default interactive-transaction timeout is 5 seconds. That is
+    // survivable against a local Postgres at well under a millisecond a query,
+    // and it is not survivable against a managed database across a network: a
+    // market with forty trades is roughly three hundred round trips, which at
+    // 20-30ms each is already past the limit. It failed exactly there the first
+    // time a seeded market had more than a handful of fills.
+    //
+    // The generous ceiling here is the fix for that; the round-trip count is the
+    // thing that should actually come down (group the trade updates, aggregate
+    // the balance moves per user, createMany the ledger and notification rows).
+    // Until then this bounds the batch at roughly a thousand trades.
     const result = await prisma.$transaction(async (tx) => {
       const contract = await tx.contract.findUnique({
         where: { id: contractId },
@@ -279,6 +295,9 @@ export async function POST(
       );
 
       return { affectedUserIds: [...affectedUserIds], tradeCount: contract.trades.length, title: contract.title, pnlByUser };
+    }, {
+      maxWait: 15000,
+      timeout: 120000,
     });
 
     await storeIdempotency(adminId, "settle-contract", idempotencyKey, reqBody, {
